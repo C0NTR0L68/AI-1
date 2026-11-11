@@ -5,13 +5,24 @@ class ChatProvider(Protocol):
     async def reply(self, messages: list[dict[str, str]]) -> str: ...
 
 class OpenAICompatibleProvider:
-    def __init__(self, api_key: str, base_url: str, model: str, timeout: float = 45.0):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        timeout: float = 45.0,
+        api_key_required: bool = True,
+    ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.api_key_required = api_key_required
 
     async def reply(self, messages: list[dict[str, str]]) -> str:
+        if self.api_key_required and not self.api_key:
+            raise RuntimeError("API key is not configured for the cloud provider")
+
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
