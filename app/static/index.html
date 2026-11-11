@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-1 — личный ИИ</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header><div><p class="eyebrow">ЛИЧНЫЙ ИИ-АССИСТЕНТ</p><h1>AI-1</h1><p class="sub">Локальный интерфейс · история на этом компьютере</p></div><button id="clear" class="ghost">Очистить историю</button></header>
+    <div id="status" class="status">Проверяю подключение…</div>
+    <section id="messages" class="messages" aria-live="polite"><div class="welcome"><h2>Привет!</h2><p>Напиши сообщение — начнём диалог.</p></div></section>
+    <form id="form"><textarea id="message" rows="2" maxlength="12000" placeholder="Напиши сообщение…" required></textarea><button id="send" type="submit">Отправить</button></form>
+    <p class="foot">Первая версия не имеет доступа к файлам или командам компьютера.</p>
+  </main><script src="/static/app.js"></script>
+</body></html>
