@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-1 — личный ИИ</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header><div><p class="eyebrow">ЛИЧНЫЙ ИИ-АССИСТЕНТ</p><h1>AI-1</h1><p class="sub">Локальный интерфейс · история на этом компьютере</p></div><button id="clear" class="ghost">Очистить историю</button></header>
+    <nav class="chat-controls"><select id="chat-picker" aria-label="Чат"></select><button id="chat-new" type="button">Новый чат</button><button id="chat-rename" type="button">Название</button><button id="chat-delete" type="button">Удалить чат</button><button id="request-check" type="button">Проверить запрос</button></nav>
+    <p id="model-label">LOCAL · проверяю модель…</p>
+    <div id="status" class="status">Проверяю подключение…</div>
+    <button id="history-older" class="ghost" type="button" hidden>Предыдущие сообщения</button>
+    <section id="messages" class="messages" aria-live="polite"><div class="welcome"><h2>Привет!</h2><p>Напиши сообщение — начнём диалог.</p></div></section>
+    <form id="form"><textarea id="message" rows="2" maxlength="12000" placeholder="Напиши сообщение…" required></textarea><button id="send" type="submit">Отправить</button><button id="request-cancel" type="button" disabled>Прервать ожидание</button></form>
+    <details class="documents">
+      <summary>Поиск по выбранным документам</summary>
+      <p>Только UTF-8 .txt и .md. Файлы читаются в этой вкладке. Только после отдельного согласия найденные фрагменты будут отправлены локальной модели. После перезагрузки выбор нужно повторить.</p>
+      <label class="file-picker">Выбрать документы <input id="document-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple></label>
+      <ul id="document-list"></ul>
+      <form id="document-search-form"><input id="document-query" maxlength="256" placeholder="Найти слова в документах" aria-label="Поиск по документам" required><button type="submit">Найти</button></form>
+      <label><input id="document-consent" type="checkbox"> Для следующего ответа разрешаю передать показанные фрагменты локальной модели. Ответ, включая возможные цитаты и имена источников, сохранится в истории чата.</label>
+      <button id="document-clear" class="ghost" type="button">Убрать документы</button>
+      <p id="document-status" role="status">Документы не выбраны.</p>
+      <div id="document-results" aria-live="polite"></div>
+    </details>
+    <p class="foot">Долговременная память пока отключена. AI-1 не выполняет команды компьютера.</p>
+  </main><script src="/static/documents.js"></script><script src="/static/workspace.js"></script>
+</body></html>

@@ -10,6 +10,16 @@
     <div id="status" class="status">Проверяю подключение…</div>
     <section id="messages" class="messages" aria-live="polite"><div class="welcome"><h2>Привет!</h2><p>Напиши сообщение — начнём диалог.</p></div></section>
     <form id="form"><textarea id="message" rows="2" maxlength="12000" placeholder="Напиши сообщение…" required></textarea><button id="send" type="submit">Отправить</button></form>
-    <p class="foot">Первая версия не имеет доступа к файлам или командам компьютера.</p>
-  </main><script src="/static/app.js"></script>
+    <details class="documents">
+      <summary>Поиск по выбранным документам</summary>
+      <p>Только UTF-8 .txt и .md. Файлы читаются в этой вкладке, не загружаются на сервер и не отправляются модели. После перезагрузки выбор нужно повторить.</p>
+      <label class="file-picker">Выбрать документы <input id="document-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple></label>
+      <ul id="document-list"></ul>
+      <form id="document-search-form"><input id="document-query" maxlength="256" placeholder="Найти слова в документах" aria-label="Поиск по документам" required><button type="submit">Найти</button></form>
+      <button id="document-clear" class="ghost" type="button">Убрать документы</button>
+      <p id="document-status" role="status">Документы не выбраны.</p>
+      <div id="document-results" aria-live="polite"></div>
+    </details>
+    <p class="foot">Долговременная память пока отключена. AI-1 не выполняет команды компьютера.</p>
+  </main><script src="/static/app.js"></script><script src="/static/documents.js"></script>
 </body></html>
