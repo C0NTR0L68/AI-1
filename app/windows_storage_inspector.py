@@ -365,7 +365,7 @@ def hold_component_evidence(path, *, expected_kind, owner_sid=None, require_priv
 
 
 @contextmanager
-def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned):
+def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned, include_handle=False):
     _validate_local_path(path)
     if expected_kind not in ("file", "directory"):
         raise WindowsStorageInspectionError("kind")
@@ -441,7 +441,7 @@ def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned):
         )
         if require_private_acl and not strict_private_acl:
             raise WindowsStorageInspectionError("private_acl")
-        yield HandleEvidence(
+        evidence = HandleEvidence(
             final_path=path,
             kind=actual_kind,
             identity=identity,
@@ -452,6 +452,41 @@ def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned):
             private_acl_principals=principals if strict_private_acl else None,
             links=int(standard.NumberOfLinks),
         )
+        yield (evidence, kernel32, handle, standard.EndOfFile) if include_handle else evidence
+
+
+def read_pinned_artifact(path, *, expected, max_bytes, require_private_acl=True):
+    """Read an existing artifact through the exact native handle inspected.
+
+    The caller supplies an independently admitted file identity and must hold a
+    trusted namespace. This does not authorize a SQLite filename or publication.
+    The false ACL option exists for a synthetic Windows fixture only.
+    """
+    if (type(expected) is not HandleEvidence or expected.kind != "file"
+            or expected.final_path != path or expected.links != 1 or expected.reparse is not False
+            or type(max_bytes) is not int or not 1 <= max_bytes <= 16 * 1024 * 1024
+            or type(require_private_acl) is not bool):
+        raise WindowsStorageInspectionError("artifact_input")
+    with _component(path, expected_kind="file", owner_sid=expected.owner if require_private_acl else None,
+                    require_private_acl=require_private_acl, pinned=True, include_handle=True) as opened:
+        evidence, kernel, handle, size = opened
+        if (evidence.identity != expected.identity or evidence.links != 1
+                or require_private_acl and (evidence.owner != expected.owner or evidence.untrusted_mutation is not False)):
+            raise WindowsStorageInspectionError("artifact_identity")
+        if not 0 < size <= max_bytes:
+            raise WindowsStorageInspectionError("artifact_size")
+        read = kernel.ReadFile
+        read.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+                         ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+        read.restype = wintypes.BOOL
+        output = (ctypes.c_ubyte * size)()
+        received = wintypes.DWORD()
+        if not read(handle, output, size, ctypes.byref(received), None) or received.value != size:
+            raise WindowsStorageInspectionError("artifact_read")
+        extra = ctypes.c_ubyte()
+        if not read(handle, ctypes.byref(extra), 1, ctypes.byref(received), None) or received.value:
+            raise WindowsStorageInspectionError("artifact_read")
+        return bytes(output)
 
 
 def _sidecars_absent(path):
