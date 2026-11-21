@@ -364,8 +364,20 @@ def hold_component_evidence(path, *, expected_kind, owner_sid=None, require_priv
                       require_private_acl=require_private_acl, pinned=True)
 
 
+def hold_archive_directory(path, *, owner_sid=None, require_private_acl=True):
+    """Pin the directory against deletion while permitting child publication.
+
+    Windows needs write sharing on this directory for rename of its children.
+    The caller must independently exclude other writers for that duration.
+    The ordinary C7 inspection keeps its more restrictive share mode.
+    """
+    return _component(path, expected_kind="directory", owner_sid=owner_sid,
+                      require_private_acl=require_private_acl, pinned=True, publish_children=True)
+
+
 @contextmanager
-def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned, include_handle=False):
+def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned,
+               include_handle=False, publish_children=False):
     _validate_local_path(path)
     if expected_kind not in ("file", "directory"):
         raise WindowsStorageInspectionError("kind")
@@ -380,10 +392,15 @@ def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned, i
     flags = _FILE_FLAG_OPEN_REPARSE_POINT
     if expected_kind == "directory":
         flags |= _FILE_FLAG_BACKUP_SEMANTICS
+    share = _FILE_SHARE_READ
+    if not pinned:
+        share |= _FILE_SHARE_WRITE | _FILE_SHARE_DELETE
+    elif publish_children:
+        share |= _FILE_SHARE_WRITE
     handle = kernel32.CreateFileW(
         path,
         _FILE_READ_ATTRIBUTES | _READ_CONTROL | (_FILE_READ_DATA_OR_LIST_DIRECTORY if pinned else 0),
-        _FILE_SHARE_READ if pinned else _FILE_SHARE_READ | _FILE_SHARE_WRITE | _FILE_SHARE_DELETE,
+        share,
         None,
         _OPEN_EXISTING,
         flags,
