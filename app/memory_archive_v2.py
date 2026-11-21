@@ -1,5 +1,6 @@
 """DPAPI backup and restore staging; never opens or replaces a disk path."""
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 import hashlib
 import hmac
 import sqlite3
@@ -71,10 +72,26 @@ def build_archive(source, *, capsule, approved_key_pin):
 
 def restore_archive(data, *, approved_archive_pin, restore_generation):
     """Authenticate before SQLite parses. Return a verified, unpublished image."""
+    if type(restore_generation) is not UUID:
+        raise ArchiveUnavailable("archive_unavailable")
+    try:
+        with open_archived_state(data, approved_archive_pin=approved_archive_pin) as (source, generation, _), _private_db() as staging:
+            source.execute("PRAGMA query_only=ON")
+            if generation == restore_generation:
+                raise ArchiveUnavailable("archive_unavailable")
+            report = stage_snapshot(source, staging, verify=_verify_note, restore_generation=restore_generation)
+            key = issue_receipt_key(report.generation)
+            return RestoreCandidate(report.generation, report.notes, _image(staging), key)
+    except Exception:
+        raise ArchiveUnavailable("archive_unavailable") from None
+
+
+@contextmanager
+def open_archived_state(data, *, approved_archive_pin):
+    """Authenticate an exact approved digest and restore a private RAM connection."""
     if (type(data) is not bytes or not 1 <= len(data) <= MAX_ARCHIVE
             or type(approved_archive_pin) is not bytes or len(approved_archive_pin) != 32
-            or not hmac.compare_digest(hashlib.sha256(data).digest(), approved_archive_pin)
-            or type(restore_generation) is not UUID):
+            or not hmac.compare_digest(hashlib.sha256(data).digest(), approved_archive_pin)):
         raise ArchiveUnavailable("archive_unavailable")
     try:
         raw = unprotect_for_current_user(data)
@@ -84,26 +101,36 @@ def restore_archive(data, *, approved_archive_pin, restore_generation):
         generation = UUID(bytes=raw[offset:offset + 16])
         length = int.from_bytes(raw[offset + 16:offset + 20], "big")
         end = offset + 52 + length
-        if not 1 <= length <= 65536 or end + 100 > len(raw) or generation == restore_generation:
+        if not 1 <= length <= 65536 or end + 100 > len(raw):
             raise ArchiveUnavailable("archive_unavailable")
         pin, capsule, image = raw[offset + 20:offset + 52], raw[offset + 52:end], raw[end:]
         open_receipt_key(generation, capsule, approved_fingerprint=pin)
         if not image.startswith(b"SQLite format 3\0") or image[18:20] != b"\x01\x01":
             raise ArchiveUnavailable("archive_unavailable")
-        with _private_db() as source, _private_db() as staging:
-            source.deserialize(image)
-            source.execute("PRAGMA trusted_schema=OFF")
-            source.execute("PRAGMA query_only=ON")
-            if MemoryLedger(source, enabled=True, receipt_budget=1).check_integrity() != generation:
-                raise ArchiveUnavailable("archive_unavailable")
-            report = stage_snapshot(source, staging, verify=_verify_note, restore_generation=restore_generation)
-            key = issue_receipt_key(report.generation)
-            return RestoreCandidate(report.generation, report.notes, _image(staging), key)
     except Exception:
         raise ArchiveUnavailable("archive_unavailable") from None
+    with _private_db() as source:
+        try:
+            source.deserialize(image)
+            source.execute("PRAGMA trusted_schema=OFF")
+            source.execute("PRAGMA temp_store=MEMORY")
+            if (source.execute("PRAGMA temp_store").fetchone() != (2,)
+                    or source.execute("PRAGMA journal_mode=MEMORY").fetchone() != ("memory",)
+                    or MemoryLedger(source, enabled=True, receipt_budget=1).check_integrity() != generation):
+                raise ArchiveUnavailable("archive_unavailable")
+        except Exception:
+            raise ArchiveUnavailable("archive_unavailable") from None
+        yield source, generation, ReceiptKeyCapsule(capsule, pin)
 
 
+@contextmanager
 def _private_db():
     # sqlite3.Connection's context manager does not close the connection.
     from contextlib import closing
-    return closing(sqlite3.connect(":memory:"))
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA temp_store=MEMORY")
+        if (connection.execute("PRAGMA temp_store").fetchone() != (2,)
+                or connection.execute("PRAGMA journal_mode=MEMORY").fetchone() != ("memory",)):
+            raise ArchiveUnavailable("archive_unavailable")
+        yield connection

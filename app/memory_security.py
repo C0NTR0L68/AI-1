@@ -251,13 +251,17 @@ class MemoryAccessGuard:
         # Ledger already owns the SQLite write transaction. No code acquires
         # SQLite while holding this lock except COMMIT of that transaction.
         # The dedicated connection must not call the guard from SQLite hooks.
+        self._finish_mutation(admission, connection.commit)
+
+    def _finish_mutation(self, admission, effect):
+        # Trusted bounded effect only. The effect must not reenter this guard.
         with self._lock:
             self._require_enabled()
             self._now()
             session = self._sessions.get(admission.session_key)
             if session is None or session.mutation_identity is not admission.session_identity:
                 raise SecurityDenied("unauthorized")
-            connection.commit()
+            return effect()
 
     def logout(self, headers) -> None:
         with self._lock:
