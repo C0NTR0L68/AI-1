@@ -5,7 +5,7 @@ import subprocess
 import pytest
 
 from b5_admission import AdmissionDenied, ChildPlan, ScopedWorkerAudit
-from b5_guest import _member
+from b5_guest import CanonicalFixturePath, _member
 from b5_worker_adapters import _private_pair, scoped_worker_adapters
 import b5_worker_adapters as adapters
 import b5_worker_job as job
@@ -15,6 +15,22 @@ import b5_worker_job as job
 def test_rejects_unowned_archive_member(name):
     with pytest.raises(ValueError, match="Unsafe member"):
         _member(name)
+
+
+def test_canonical_fixture_scope_accepts_only_exact_alias(tmp_path):
+    fixture = CanonicalFixturePath()
+    base = tmp_path / "unused"
+    alias = base / ".." / "identity.sqlite3"
+    other = base / ".." / "other.sqlite3"
+    assert fixture.inspect(alias) == alias
+    fixture.arm(tmp_path)
+    assert fixture.inspect(alias) == tmp_path / "identity.sqlite3"
+    assert fixture.inspect(other) == other
+    fixture.disarm()
+    assert fixture.inspect(alias) == alias
+    base.mkdir()
+    with pytest.raises(PermissionError):
+        fixture.arm(tmp_path)
 
 
 def test_partial_self_pipe_cleans_owned_resources(monkeypatch):

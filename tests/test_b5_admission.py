@@ -23,9 +23,9 @@ class SocketEvidence:
 def test_only_expected_private_socketpair_is_admitted():
     policy = admission.PrivateSocketAudit(family=2, kind=1)
     server_addr, client_addr = ("127.0.0.1", 50100), ("127.0.0.1", 50101)
-    listener = SocketEvidence(server_addr, descriptor=-1)
+    listener = SocketEvidence(server_addr, descriptor=7)
     writer = SocketEvidence(client_addr, server_addr)
-    reader = SocketEvidence(server_addr, client_addr)
+    reader = SocketEvidence(server_addr, client_addr, descriptor=9)
     policy.accept_event("socket.__new__", (listener, 2, 1, 0))
     with pytest.raises(admission.AdmissionDenied):
         policy.accept_event("socket.bind", (listener, server_addr))
@@ -37,7 +37,10 @@ def test_only_expected_private_socketpair_is_admitted():
     with pytest.raises(admission.AdmissionDenied):
         policy.accept_event("socket.connect", (reader, server_addr))
     policy.accept_event("socket.connect", (writer, server_addr))
-    policy.accept_event("socket.__new__", (reader, 2, 1, 0))
+    with pytest.raises(admission.AdmissionDenied):
+        policy.accept_event("socket.__new__", (reader, 2, 1, 0))
+    policy.adopt_accepted(listener, reader, writer, client_addr)
+    listener.descriptor = -1
     policy.verify_pair(reader, writer)
     with pytest.raises(admission.AdmissionDenied):
         policy.verify_pair(writer, reader)

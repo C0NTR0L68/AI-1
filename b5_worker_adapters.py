@@ -24,8 +24,7 @@ def _private_pair(audit):
             writer.settimeout(2)
             writer.connect(listener.getsockname())
             reader, peer = listener.accept()
-            if peer != writer.getsockname() or reader.getsockname() != listener.getsockname():
-                raise AdmissionDenied("SOCKET_PEER")
+            permission.adopt_accepted(listener, reader, writer, peer)
             listener.close()
             permission.verify_pair(reader, writer)
             reader.setblocking(False)

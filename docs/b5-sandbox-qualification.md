@@ -1,5 +1,7 @@
 # Full B5 Windows Sandbox qualification — 2026-11-22
 
+## Earlier qualification attempt
+
 A fresh Windows Sandbox was started with networking, vGPU, clipboard and
 device redirection disabled, no mapped folders and 2,560 MB of RAM.
 The first attempt to run as the signed-in guest returned 0x80070520.
@@ -80,3 +82,44 @@ observed its expected exit and reached an empty Job on retry. Its stricter
 total-process count differed from one, so that probe did not fully pass.
 Neither the synthetic regressions nor the system canary qualify the frozen
 Python and Node launch path.
+
+## Actual frozen Full B5 execution
+
+The no-network, no-shares guest received all 2,384 blocks through the
+Windows Sandbox CLI and verified the complete pinned archive SHA-256.
+Online services and the host filesystem were unavailable to the tests.
+Archive extraction used the in-box .NET ZIP reader after the first
+PowerShell archive command failed. The original archive was unchanged.
+
+The real guest preflight reproduced a CPython Windows detail: the accepted
+socket descriptor is wrapped without another socket creation audit event.
+The worker now adopts only a socket returned by the owned listener and
+checks its descriptor uniqueness and both peer addresses. The following
+guest preflight passed real asyncio, the out-of-scope socket denial, the
+pinned Python child and Job cleanup.
+
+The first real run executed 603 items from all 195 frozen Python functions:
+600 passed and 3 failed. The original Node UI subprocess test passed.
+The runtime-lock fixture's exact synthetic unused/../identity.sqlite3
+alias was refused by the adapter, before the underlying lock could be
+tested. The correction permits only this fixture's path while the named
+case runs, still refuses it in the SQLite-connect audit, and passes the
+original alias unchanged to the runtime lock for native canonicalization.
+
+The repeated original suite ran **603 items, 601 passed, 2 failed,
+0 skipped**, pytest exit 1. The runtime-lock alias and original Node UI
+test both passed. The remaining failed calls were:
+
+- `test_complete_turn_sqlite_failure_becomes_unknown_without_assistant`.
+  The fixture installs its write-failure trigger before startup, while the
+  frozen schema gate rejects extra schema objects before turn execution.
+- `test_legacy_assistant_model_name_survives_provenance_migration_and_api`.
+  The API fixture expects the legacy database to be served, while its
+  resulting schema is outside the frozen preflight allowlist.
+
+The two outcomes above are frozen test and release contract conflicts.
+An approved follow-up baseline is needed to reconcile them. The old files,
+assertions, preflight checks, and the offline archive were preserved.
+**Full B5 executed and failed.** Synthetic worker/C7 regression run:
+71 passed, 1 Windows symlink skip. Memory V2 remains disabled. The
+production trusted head and archive binding are still unqualified.

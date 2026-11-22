@@ -91,6 +91,30 @@ def _inventory(suite):
     return expected
 
 
+class CanonicalFixturePath:
+    """One temporary alias supplied by the unchanged runtime-lock test."""
+
+    def __init__(self):
+        self.alias = self.canonical = None
+
+    def arm(self, directory):
+        unused = directory / "unused"
+        try:
+            unused.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise PermissionError("Canonical fixture parent must not exist")
+        self.canonical = directory / "identity.sqlite3"
+        self.alias = unused / ".." / self.canonical.name
+
+    def disarm(self):
+        self.alias = self.canonical = None
+
+    def inspect(self, value):
+        return self.canonical if self.alias is not None and Path(os.fsdecode(value)) == self.alias else value
+
+
 def _worker(root, mode):
     sys.path[:0] = [str(root.parent / "runner"), str(root / "deps")]
     from adapters import prepare_candidate
@@ -106,7 +130,20 @@ def _worker(root, mode):
     suite, temp = root / "suite", root / "temp"
     python = root / "runtime/python/python.exe"
     node = root / "runtime/node/node.exe"
-    policy = Policy(root, root / "unavailable-live-project")
+    fixture_path = CanonicalFixturePath()
+
+    class WorkerPolicy(Policy):
+        def sqlite(self, value):
+            return super().sqlite(fixture_path.inspect(value))
+
+        def audit(self, event, args):
+            if event == "sqlite3.connect":
+                # The runtime lock may inspect the fixture alias, but SQLite
+                # itself must still receive a canonical path.
+                Policy.sqlite(self, args[0])
+            return super().audit(event, args)
+
+    policy = WorkerPolicy(root, root / "unavailable-live-project")
     policy.read_roots += (root.parent / "runner",)
     audit = ScopedWorkerAudit(policy.audit)
     expected = _inventory(suite)
@@ -123,6 +160,15 @@ def _worker(root, mode):
 
         def pytest_runtest_logreport(self, report):
             evidence["items"].append([report.nodeid, report.when, report.outcome])
+
+        @pytest.hookimpl(hookwrapper=True)
+        def pytest_runtest_call(self, item):
+            if item.nodeid == "tests/test_app.py::test_runtime_lock_uses_canonical_path_and_blocks_recovery_before_sqlite":
+                fixture_path.arm(policy.owned(item.funcargs["tmp_path"]))
+            try:
+                yield
+            finally:
+                fixture_path.disarm()
 
     async def smoke():
         await asyncio.sleep(0)
@@ -204,6 +250,9 @@ def main():
         report.rename(root / ("previous-" + mode + "-" + uuid4().hex + ".json"))
     code = run_worker(root / "runtime/python/python.exe", Path(__file__), root,
                       _clean_environment(root), deadline_ms=180_000, mode=mode)
+    failure = root / ("failure-" + mode + ".txt")
+    if code != 0 and failure.is_file():
+        print(failure.read_text(encoding="utf8"))
     _verify_packages(root)
     return code
 
@@ -218,4 +267,14 @@ def _guest_root(value):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        if len(sys.argv) == 4 and sys.argv[1] == "worker" and sys.argv[2] in ("preflight", "suite"):
+            if os.name == "nt" and os.getlogin().casefold() == "wdagutilityaccount":
+                import traceback
+
+                root = _guest_root(sys.argv[3])
+                path = root / ("failure-" + sys.argv[2] + ".txt")
+                path.write_text(traceback.format_exc(limit=8), encoding="utf8")
+        raise

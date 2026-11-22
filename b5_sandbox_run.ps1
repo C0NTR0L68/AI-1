@@ -42,10 +42,15 @@ if ($gate -ne 42) { throw "Guest preflight refused: code $gate." }
 
 if ($Mode -eq "preflight") {
     $unpack = '$ErrorActionPreference=''Stop'';$r='''+$root+''';' +
-        '$p=Join-Path $r ''payload'';$s=Join-Path $r ''runner'';if((Test-Path $p) -or (Test-Path $s)){exit 67};' +
-        'Expand-Archive -LiteralPath (Join-Path $r ''AI-1-B5-Offline.zip'') -DestinationPath $p;' +
+        '$p=Join-Path $r ''payload'';$s=Join-Path $r ''runner'';$log=Join-Path $r ''guest-preflight.console.log'';' +
+        'foreach($old in @($p,$s,$log)){if(Test-Path -LiteralPath $old){' +
+        'if((Get-Item -LiteralPath $old).Attributes -band [IO.FileAttributes]::ReparsePoint){exit 67};' +
+        'Move-Item -LiteralPath $old -Destination ($old+''.previous-''+[guid]::NewGuid().ToString(''N''))}};' +
+        'Add-Type -AssemblyName System.IO.Compression.FileSystem;' +
+        '[IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $r ''AI-1-B5-Offline.zip''),$p);' +
         '[void][IO.Directory]::CreateDirectory($s);exit 42'
-    if ((Invoke-Guest $unpack) -ne 42) { throw "Guest unpack refused." }
+    $unpackCode = Invoke-Guest $unpack
+    if ($unpackCode -ne 42) { throw "Guest unpack refused: code $unpackCode." }
     foreach ($name in $files.Keys) {
         $bytes = [byte[]] $files[$name]
         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
@@ -65,9 +70,19 @@ foreach ($name in $files.Keys) {
 $run = '$ErrorActionPreference=''Stop'';$r='''+$root+''';'+$strictSources+
     '$p=Join-Path $r ''payload'';$y=Join-Path $p ''runtime\python\python.exe'';' +
     'if((Get-FileHash -LiteralPath $y).Hash -ne '''+$pySha+'''){exit 68};' +
-    '& $y -I -S -B (Join-Path $r ''runner\b5_guest.py'') $p '''+$Mode+''';exit $LASTEXITCODE'
+    '$log=Join-Path $r (''guest-'+$Mode+'.console.log'');' +
+    '$ErrorActionPreference=''Continue'';' +
+    '& $y -I -S -B (Join-Path $r ''runner\b5_guest.py'') $p '''+$Mode+''' *> $log;exit $LASTEXITCODE'
 $code = Invoke-Guest $run
 $report = [ordered]@{ mode = $Mode; exit = $code; sandbox = $SandboxId; transfer = $TransferId }
+if ($code -ne 0) {
+    $diagnostic = '$p='''+$root+'\guest-'+$Mode+'.console.log'';' +
+        'if(!(Test-Path -LiteralPath $p -PathType Leaf)){exit 90};$s=Get-Content -LiteralPath $p -Raw;' +
+        'if($s -match ''WinError|Win32''){exit 91};if($s -match ''Job limits differ|not assigned to a Job''){exit 92};' +
+        'if($s -match ''ModuleNotFoundError|ImportError''){exit 93};if($s -match ''AdmissionDenied|PermissionError''){exit 94};' +
+        'if($s -match ''TimeoutError''){exit 95};if($s -match ''unexpected|unavailable|RuntimeError''){exit 96};exit 97'
+    $report.failureCategory = Invoke-Guest $diagnostic
+}
 if ($Mode -eq "suite") {
     $read = '$ErrorActionPreference=''Stop'';$p='''+$root+'\payload\result-suite.json'';' +
         'if(!(Test-Path -LiteralPath $p -PathType Leaf)){exit 10001};' +

@@ -137,14 +137,15 @@ class PrivateSocketAudit:
         self._sockets = []
         self._bound = False
         self._connected = False
+        self._accepted = None
 
     def accept_event(self, event, args):
         if event == "socket.__new__" and len(args) == 4:
             sock, family, kind, protocol = args
             position = len(self._sockets)
-            if (position < 3 and (family, kind, protocol) == (self._family, self._kind, 0)
+            if (position < 2 and (family, kind, protocol) == (self._family, self._kind, 0)
                     and all(sock is not prior for prior in self._sockets)
-                    and (position != 1 or self._bound) and (position != 2 or self._connected)):
+                    and (position != 1 or self._bound)):
                 self._sockets.append(sock)
                 return
         elif event == "socket.bind" and len(args) == 2:
@@ -162,12 +163,28 @@ class PrivateSocketAudit:
                     return
         raise AdmissionDenied("SOCKET_OPERATION")
 
+    def adopt_accepted(self, listener, reader, writer, peer):
+        # CPython Windows wraps the already accepted descriptor without
+        # socket.__new__. Admit only the result from the owned listener.
+        if (self._accepted is not None or not self._connected or len(self._sockets) != 2
+                or listener is not self._sockets[0] or writer is not self._sockets[1]
+                or reader is listener or reader is writer
+                or reader.fileno() < 0 or reader.fileno() in (listener.fileno(), writer.fileno())
+                or peer != writer.getsockname() or reader.getsockname() != listener.getsockname()
+                or reader.getpeername() != peer or writer.getpeername() != reader.getsockname()):
+            raise AdmissionDenied("SOCKET_PAIR_ACCEPT_IDENTITY")
+        self._accepted = reader
+
     def verify_pair(self, reader, writer):
-        if (not self._connected or len(self._sockets) != 3 or reader is not self._sockets[2]
-                or writer is not self._sockets[1] or self._sockets[0].fileno() != -1
-                or reader.getsockname() != writer.getpeername()
-                or writer.getsockname() != reader.getpeername()):
+        if not self._connected or len(self._sockets) != 2 or self._accepted is None:
             raise AdmissionDenied("SOCKET_PAIR_UNCONFIRMED")
+        if reader is not self._accepted or writer is not self._sockets[1]:
+            raise AdmissionDenied("SOCKET_PAIR_IDENTITY")
+        if self._sockets[0].fileno() != -1:
+            raise AdmissionDenied("SOCKET_PAIR_LISTENER_NOT_CLOSED")
+        if (reader.getsockname() != writer.getpeername()
+                or writer.getsockname() != reader.getpeername()):
+            raise AdmissionDenied("SOCKET_PAIR_PEER_MISMATCH")
 
 
 class ScopedWorkerAudit:
