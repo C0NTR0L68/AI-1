@@ -16,7 +16,7 @@ from app.windows_storage_inspector import _free_local, _sid_string, _windows_api
 _NAME = re.compile(r"AI1-C7-[a-f0-9]{32}\Z")
 _ACCOUNT_SID = re.compile(r"S-1-5-(?:18|21(?:-[0-9]{1,10}){4}|80(?:-[0-9]{1,10}){5})\Z")
 _RESPONSE = struct.Struct(">16sQ32s")
-_CLIENT_ACCESS = 0x00120003  # SYNCHRONIZE | READ_CONTROL | FILE_READ_DATA | FILE_WRITE_DATA
+_CLIENT_ACCESS = 0x0012008B  # FILE_GENERIC_READ | FILE_WRITE_DATA, excludes FILE_CREATE_PIPE_INSTANCE
 _OVERLAPPED = 0x40000000
 _IDENTIFY_ONLY = 0x00110000  # SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
 _LOG = logging.getLogger(__name__)
@@ -211,6 +211,14 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
             _io_result(api, connection, monotonic() + accept_timeout)
         except TimeoutError:
             return "idle"
+        except OSError as error:
+            if error.winerror != api.ERROR_NO_DATA:
+                raise
+            kernel.DisconnectNamedPipe.argtypes = [W.HANDLE]
+            kernel.DisconnectNamedPipe.restype = W.BOOL
+            if not kernel.DisconnectNamedPipe(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return "disconnected"
         try:
             deadline = monotonic() + timeout
             operation = _receive(api, handle, 1, deadline)
