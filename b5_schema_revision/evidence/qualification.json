@@ -1,0 +1,33 @@
+{
+  "reviewed_commit": "5078081f4b2e8df9e7195b67c5a131d79d86fdec",
+  "candidate_proposal": "b81238102d688b39ee0a6f11db4f85936416ac76",
+  "control_baseline": {
+    "items": 603,
+    "pass": 601,
+    "archive_sha256": "569FD484C31746A0A3A2DA0D133C2EEB8D426C607E71888F2CE113A43F69D8E7",
+    "fail": 2
+  },
+  "full_b5": "PASS",
+  "c7_v1": {
+    "archive_namespace_bound": false,
+    "production_factory_bound": false,
+    "status": "BLOCKED",
+    "native_symlink_test": "SKIPPED",
+    "passed": 57,
+    "skipped": 1
+  },
+  "memory_v2": "OFF",
+  "production": "NO-GO",
+  "sha256": {
+    "b5-schema-frozen-guest-preflight.json": "0ED363055FD04484615E328D884F71C5E328EA2E0FF978BB0850A9D7092FFFFC",
+    "b5-schema-frozen-guest-suite.json": "DE99EB4C6390B6902E1E359225C3D4FDD75B2C2928EB6C147EBA18F304A0941D",
+    "b5-schema-frozen-denial-counts.json": "C4F72F519976E5D6558815429D9CD8B16FBEC04450BD04CE9D2064C1D79318D8",
+    "b5-schema-frozen-guest-preflight-retry.json": "0ED363055FD04484615E328D884F71C5E328EA2E0FF978BB0850A9D7092FFFFC",
+    "b5-schema-frozen-guest-suite-retry.json": "2737F19AFB9006200B630A0D6091C1A7F9E00F2B676F0A050F7DB4686641C054",
+    "b5-schema-frozen-sandbox-cleanup.json": "06FDEFDED81E5EDE6DF4608B1D89E55A5EE303A26102E0EA3A888E6A3E825160",
+    "b5-frozen-b812381-transfer.log": "6C002DAEB8400EE85190B4250F1F7A0BD919B323AD889ED6DFBF668F85366CF3",
+    "b5-frozen-b812381-support-final.log": "A95C3015FC868BC99B4861391ACA937F3E3B839F6F62F5CC650355C6972B80CC",
+    "c7-v1-b812381-acceptance.log": "2A158F6A5A233B15A6A7E3B431BEA4B8A19FBB357E5656F9A162F3905C7A7CEA",
+    "b5-real-guest-suite-alias.log": "016980633D7AF410411E5E5F9AC698D1B1C52D5CD7561A934711EBF678931C32"
+  }
+}

@@ -1,0 +1,2 @@
+# Preserve the original control log, including its final blank line.
+b5-real-guest-suite-alias.log -text -diff

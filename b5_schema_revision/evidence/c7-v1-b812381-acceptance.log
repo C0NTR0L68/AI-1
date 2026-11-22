@@ -1,0 +1,4 @@
+.....................s....................................               [100%]
+=========================== short test summary info ===========================
+SKIPPED [1] review\tests\test_windows_storage_inspector.py:69: Creating a temporary symlink is unavailable in this Windows environment
+57 passed, 1 skipped in 2.91s

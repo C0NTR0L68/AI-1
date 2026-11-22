@@ -1,0 +1,12 @@
+
+mode               : suite
+exit               : 1
+sandbox            : 0289ff6f-da1d-45b3-bc1d-8d17907268f2
+transfer           : 332b913d-f012-4368-9f83-cbd9fa545d40
+failureCategory    : 97
+baseFunctions      : 195
+collected          : 603
+passedCalls        : 601
+unsuccessfulPhases : 2
+nodeTestPassed     : 1
+

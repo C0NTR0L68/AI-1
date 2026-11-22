@@ -1,0 +1,23 @@
+{
+  "mode": "suite",
+  "exit": 75,
+  "sandbox": "43ac0b2f-601f-4324-ba8e-5d9f5ebcf630",
+  "transfer": "89665b58-a413-4d5b-85f8-a47dd97a58bf",
+  "archiveSha256": "4BCE5F2BEF7CB4374CB42F8AFDD56C6BC5304CAD7A5754282E5808C417A66D15",
+  "failureCategory": 97,
+  "baseFunctions": 198,
+  "collected": 609,
+  "passedCalls": 609,
+  "unsuccessfulPhases": 0,
+  "nodeTestPassed": 1,
+  "expectedCollection": 1,
+  "passedSchemaCases": 8,
+  "completedPhases": 1827,
+  "unexpectedDenials": 192,
+  "node_tests": null,
+  "node_pass": null,
+  "node_fail": null,
+  "node_cancelled": null,
+  "node_skipped": null,
+  "node_todo": null
+}

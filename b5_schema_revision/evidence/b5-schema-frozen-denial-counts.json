@@ -1,0 +1,66 @@
+[
+  {
+    "code": "LINKED_PATH",
+    "count": 0
+  },
+  {
+    "code": "PATH_STATE_UNKNOWN",
+    "count": 0
+  },
+  {
+    "code": "FOREIGN_PATH",
+    "count": 0
+  },
+  {
+    "code": "UNREVIEWED_READ_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "NETWORK_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "LINKED_READ_REFUSED",
+    "count": 0
+  },
+  {
+    "code": "HARDLINK_REFUSED",
+    "count": 0
+  },
+  {
+    "code": "SQLITE_URI_REFUSED",
+    "count": 0
+  },
+  {
+    "code": "READ_STATE_UNKNOWN",
+    "count": 0
+  },
+  {
+    "code": "ABSOLUTE_SQLITE_REQUIRED",
+    "count": 0
+  },
+  {
+    "code": "ENV_READ_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "DOTENV_IMPORT_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "HARDLINK_READ_REFUSED",
+    "count": 0
+  },
+  {
+    "code": "LIVE_PROJECT_READ_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "CHILD_PROCESS_FORBIDDEN",
+    "count": 0
+  },
+  {
+    "code": "LINK_CREATION_FORBIDDEN",
+    "count": 192
+  }
+]
