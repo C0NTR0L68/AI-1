@@ -41,12 +41,14 @@ def local_configuration(database: str, model: str) -> dict[str, str]:
     }
 
 
-def main(argv=None) -> int:
+def main(argv=None, *, memory_storage_factory=None) -> int:
     parser = argparse.ArgumentParser(description="AI-1 LOCAL: explicit database, no dotenv or cloud")
     parser.add_argument("--database", required=True, help="Absolute .sqlite3 history path")
     parser.add_argument("--model", default="qwen2.5:1.5b", help="Already installed Ollama model")
     parser.add_argument("--workspace", action="store_true", help="Opt in to a separate NEW workspace schema; never imports legacy history")
     args = parser.parse_args(argv)
+    if memory_storage_factory is not None and not args.workspace:
+        parser.error("Trusted storage requires a local workspace")
     try:
         environment = local_configuration(args.database, args.model)
         path = Path(environment["AI1_DATABASE_PATH"])
@@ -63,7 +65,7 @@ def main(argv=None) -> int:
     if args.workspace:
         from functools import partial
         from app.main import create_app
-        target = partial(create_app, workspace_path=str(path))
+        target = partial(create_app, workspace_path=str(path), memory_storage_factory=memory_storage_factory)
     uvicorn.run(target, factory=True, host="127.0.0.1", port=8000,
                 workers=1, reload=False, proxy_headers=False)
     return 0

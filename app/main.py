@@ -1,5 +1,5 @@
 from asyncio import CancelledError
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from functools import partial
 import logging
 from pathlib import Path
@@ -164,7 +164,8 @@ class RuntimeGuardMiddleware:
 
 
 def create_app(store: ChatStore | None = None, provider=None, *, local_port: int = 8000,
-               workspace_path: str | None = None, memory_test_binding=None) -> FastAPI:
+               workspace_path: str | None = None, memory_test_binding=None,
+               memory_storage_factory=None) -> FastAPI:
     # An injected test listener gets its own exact Host/Origin boundary; the
     # production address remains 127.0.0.1:8000 with no wildcard allowance.
     local_policy = LocalRequestPolicy(port=local_port, native_writes="marker")
@@ -173,6 +174,11 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
         if (type(memory_test_binding) is not MemoryTestBinding or workspace_path is None
                 or provider is None or local_port != 8000):
             raise ValueError("Memory testing requires an explicit workspace, fake provider and canonical port")
+    if memory_storage_factory is not None:
+        from app.memory_storage_binding import MemoryStorageFactory
+        if (type(memory_storage_factory) is not MemoryStorageFactory or workspace_path is None
+                or memory_test_binding is not None or local_port != 8000):
+            raise ValueError("Trusted storage requires a local workspace and no test memory binding")
     if workspace_path is not None and (store is not None or not Path(workspace_path).is_absolute()):
         raise ValueError("Workspace requires an explicit absolute path and its own store")
     if workspace_path is not None:
@@ -191,7 +197,10 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
             raise ValueError("New workspace currently requires explicit local mode")
         runtime.start()
         ready = False
+        storage = ExitStack()
         try:
+            if memory_storage_factory is not None:
+                application.state.memory_storage = storage.enter_context(memory_storage_factory.open())
             if application.state.store is None:
                 if workspace_path is not None:
                     from app.workspace import WorkspaceStore
@@ -216,7 +225,11 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
                 if memory_test_binding is not None:
                     memory_test_binding.guard.disable()
             finally:
-                runtime.stop(ready=ready)
+                application.state.memory_storage = None
+                try:
+                    storage.close()
+                finally:
+                    runtime.stop(ready=ready)
 
     application = FastAPI(title="AI-1", version="0.1.0", lifespan=lifespan,
                           docs_url=None, redoc_url=None)
@@ -231,6 +244,7 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
     application.state.provider = provider
     application.state.runtime = runtime
     application.state.effective_mode = None
+    application.state.memory_storage = None
     application.state.workspace_mode = workspace_path is not None
     if workspace_path is not None:
         from app.workspace_api import install_workspace_routes
