@@ -3,7 +3,7 @@
 Never instantiate from the client store or import the ledger's head from backups.
 The caller owns the authority's connection factory and rollback boundary.
 """
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 import sqlite3
 from uuid import UUID
@@ -153,13 +153,20 @@ class AuthorityArchiveBackend:
     def head(self):
         return self._current().digest
 
+    @contextmanager
+    def open_image(self, digest):
+        """Only expose an authenticated image for the enrolled generation."""
+        from app.memory_archive_v2 import open_archived_state
+
+        with open_archived_state(self.read(digest), approved_archive_pin=digest) as state:
+            if state[1] != self._generation:
+                raise HeadUnavailable("archive_generation_mismatch")
+            yield state
+
     def advance(self, expected, digest):
         current = self._current()
         if current.digest != expected or current.revision == _MAX_REVISION:
             return False
-        from app.memory_archive_v2 import open_archived_state
-
-        with open_archived_state(self.read(digest), approved_archive_pin=digest) as (_, generation, _):
-            if generation != current.generation:
-                raise HeadUnavailable("archive_generation_mismatch")
-        return self._authority.advance(current, Head(generation, current.revision + 1, digest))
+        with self.open_image(digest):
+            pass
+        return self._authority.advance(current, Head(current.generation, current.revision + 1, digest))

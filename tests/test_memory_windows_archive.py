@@ -12,7 +12,7 @@ import pytest
 from app import memory_windows_archive
 from app.memory_archive_publish_v2 import PublicationUnconfirmed
 from app.memory_archive_v2 import BackupArchive, build_archive
-from app.memory_head_v2 import AuthorityArchiveBackend, DurableHeadRegistry, Head
+from app.memory_head_v2 import AuthorityArchiveBackend, DurableHeadRegistry, Head, HeadUnavailable
 from app.memory_image_ledger import MemoryImageLedger
 from app.memory_keys_v2 import issue_receipt_key
 from app.memory_ledger import MemoryLedger
@@ -189,3 +189,23 @@ def test_private_archives_and_trusted_head_survive_reopen(admitted):
     with pytest.raises(PublicationUnconfirmed):
         ledger.read(generation)
     assert authority.read() == live
+
+
+def test_ledger_rejects_authenticated_archive_bound_to_wrong_generation(admitted):
+    path, ns, _, _, _ = admitted
+    archive_generation = uuid4()
+    expected_generation = uuid4()
+    capsule = issue_receipt_key(archive_generation)
+    with closing(sqlite3.connect(":memory:")) as conn:
+        MemoryLedger(conn, enabled=True, receipt_budget=8).initialize_empty(archive_generation)
+        archive = build_archive(conn, capsule=capsule, approved_key_pin=capsule.fingerprint)
+    ns.publish(archive)
+    authority = DurableHeadRegistry(lambda: sqlite3.connect(path.parent / "wrong-head.sqlite"))
+    authority.provision(Head(expected_generation, 0, archive.fingerprint))
+    backend = AuthorityArchiveBackend(authority, generation=expected_generation,
+                                      read_archive=ns.read, publish_archive=ns.publish)
+    ledger = MemoryImageLedger(backend, receipt_budget=8)
+    with pytest.raises(HeadUnavailable, match="archive_generation_mismatch"):
+        ledger.read(archive_generation)
+    with pytest.raises(HeadUnavailable, match="archive_generation_mismatch"):
+        ledger.snapshot(uuid4())

@@ -38,6 +38,9 @@ class MemoryImageLedger:
         return value
 
     def _open(self, head):
+        open_image = getattr(self._backend, "open_image", None)
+        if open_image is not None:
+            return open_image(head)
         return open_archived_state(self._backend.read(head), approved_archive_pin=head)
 
     def read(self, generation, *, after=0, limit=50):
