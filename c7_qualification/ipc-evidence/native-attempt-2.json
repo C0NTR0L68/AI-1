@@ -1,0 +1,76 @@
+{
+  "dependency": {
+    "guest_exit": 42,
+    "phase": "dependency",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "enroll": {
+    "guest_exit": 42,
+    "phase": "enroll",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "initial-server-closed": {
+    "guest_exit": 42,
+    "phase": "initial-server-closed",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "initial-server-marker-closed": {
+    "guest_exit": 42,
+    "phase": "initial-server-marker-closed",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "initial-server-signal": {
+    "guest_exit": 42,
+    "phase": "initial-server-signal",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "initial-startup": {
+    "guest_exit": 1,
+    "phase": "initial-startup",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "ipc_guest.py-ExistingLogin": {
+    "guest_exit": 42,
+    "phase": "ipc_guest.py-ExistingLogin",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "ipc_guest.py-System": {
+    "guest_exit": 42,
+    "phase": "ipc_guest.py-System",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "isolation": {
+    "guest_exit": 42,
+    "phase": "isolation",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "memory_authority_pipe.py-ExistingLogin": {
+    "guest_exit": 42,
+    "phase": "memory_authority_pipe.py-ExistingLogin",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "memory_authority_pipe.py-System": {
+    "guest_exit": 42,
+    "phase": "memory_authority_pipe.py-System",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "provision": {
+    "guest_exit": 42,
+    "phase": "provision",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "source-pins": {
+    "app/memory_authority_pipe.py": "001CAB0BBB36F2B32B51D7698997C21746F674CAC306FA8DF0E9D53CCFF6035E",
+    "c7_qualification/ipc_guest.py": "F25D6FBF9A6DBD2D5A7DEFDED2E05DE63312304C4ED69B77D007EA7791CD73FE"
+  },
+  "stage": {
+    "guest_exit": 42,
+    "phase": "stage",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  },
+  "stage-system": {
+    "guest_exit": 42,
+    "phase": "stage-system",
+    "source_revision": "2ad0f232eca255ff5010fd890f0278bceb7ca306"
+  }
+}

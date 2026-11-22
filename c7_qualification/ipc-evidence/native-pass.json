@@ -1,0 +1,172 @@
+{
+  "archive-directory-substitution": {
+    "guest_exit": 42,
+    "phase": "archive-directory-substitution",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "authority-disconnected": {
+    "guest_exit": 42,
+    "phase": "authority-disconnected",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "authority-revision-advance": {
+    "guest_exit": 42,
+    "phase": "authority-revision-advance",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "authority-unavailable": {
+    "guest_exit": 42,
+    "phase": "authority-unavailable",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "create-real-journal": {
+    "guest_exit": 42,
+    "phase": "create-real-journal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "deny-ordinary-file-operations": {
+    "guest_exit": 42,
+    "phase": "deny-ordinary-file-operations",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "dependency": {
+    "guest_exit": 42,
+    "phase": "dependency",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "dropped-server-closed": {
+    "guest_exit": 42,
+    "phase": "dropped-server-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "dropped-server-marker-closed": {
+    "guest_exit": 42,
+    "phase": "dropped-server-marker-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "dropped-server-signal": {
+    "guest_exit": 42,
+    "phase": "dropped-server-signal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "enroll": {
+    "guest_exit": 42,
+    "phase": "enroll",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "impostor-server-closed": {
+    "guest_exit": 42,
+    "phase": "impostor-server-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "impostor-server-marker-closed": {
+    "guest_exit": 42,
+    "phase": "impostor-server-marker-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "impostor-server-signal": {
+    "guest_exit": 42,
+    "phase": "impostor-server-signal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "initial-server-closed": {
+    "guest_exit": 42,
+    "phase": "initial-server-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "initial-server-marker-closed": {
+    "guest_exit": 42,
+    "phase": "initial-server-marker-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "initial-server-signal": {
+    "guest_exit": 42,
+    "phase": "initial-server-signal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "initial-startup": {
+    "guest_exit": 42,
+    "phase": "initial-startup",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "ipc_guest.py-ExistingLogin": {
+    "guest_exit": 42,
+    "phase": "ipc_guest.py-ExistingLogin",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "ipc_guest.py-System": {
+    "guest_exit": 42,
+    "phase": "ipc_guest.py-System",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "isolation": {
+    "guest_exit": 42,
+    "phase": "isolation",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "memory_authority_pipe.py-ExistingLogin": {
+    "guest_exit": 42,
+    "phase": "memory_authority_pipe.py-ExistingLogin",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "memory_authority_pipe.py-System": {
+    "guest_exit": 42,
+    "phase": "memory_authority_pipe.py-System",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "provision": {
+    "guest_exit": 42,
+    "phase": "provision",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "refuse-substituted-archive": {
+    "guest_exit": 42,
+    "phase": "refuse-substituted-archive",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "restarted-server-closed": {
+    "guest_exit": 42,
+    "phase": "restarted-server-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "restarted-server-marker-closed": {
+    "guest_exit": 42,
+    "phase": "restarted-server-marker-closed",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "restarted-server-signal": {
+    "guest_exit": 42,
+    "phase": "restarted-server-signal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "restarted-startup": {
+    "guest_exit": 42,
+    "phase": "restarted-startup",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "stage": {
+    "guest_exit": 42,
+    "phase": "stage",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "stage-system": {
+    "guest_exit": 42,
+    "phase": "stage-system",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "verify-head-and-journal": {
+    "guest_exit": 42,
+    "phase": "verify-head-and-journal",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "wrong-authority-owner": {
+    "guest_exit": 42,
+    "phase": "wrong-authority-owner",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  },
+  "wrong-client-sid": {
+    "guest_exit": 42,
+    "phase": "wrong-client-sid",
+    "source_revision": "6d56d6fb6f9a2641ce8af903b295073c7f2d8aeb"
+  }
+}
