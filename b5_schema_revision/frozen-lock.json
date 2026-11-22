@@ -1,0 +1,42 @@
+{
+  "archive_sha256": "4BCE5F2BEF7CB4374CB42F8AFDD56C6BC5304CAD7A5754282E5808C417A66D15",
+  "manifest_sha256": "C4C51B4ACC137AB39AAFDDE99F76D643298E4D520A8534C978BA006BB668877F",
+  "revision_sha256": "56B59923D8A4BB7E6E03D620019467B6B2C55729B4A8F3722503F276B81D8134",
+  "release_manifest_sha256": "52997E9F64227787DCD56D36D3D07978F161CAA169DDAC589D861A23DCCCADCC",
+  "size": 52443876,
+  "base_functions": 198,
+  "expected_cases": 609,
+  "control_sha256": "569FD484C31746A0A3A2DA0D133C2EEB8D426C607E71888F2CE113A43F69D8E7",
+  "source_commit": "b81238102d688b39ee0a6f11db4f85936416ac76",
+  "proposal_manifest_sha256": "2794577BC556D85A6341C4B97BAD70DD4197D776E9BDB8D9EE6596C74389B0D8",
+  "collection": {
+    "control": {
+      "items": 603,
+      "base_functions": 195,
+      "sha256": "66fa30ca5f6b792b7a88d3a47b9f6526e2c8a5f22df63a7c9489ebf8c986dccd",
+      "historic_pass": 601,
+      "historic_fail": 2,
+      "historic_log_sha256": "016980633d7af410411e5e5f9ac698d1b1c52d5cd7561a934711ebf678931c32"
+    },
+    "candidate": {
+      "items": 609,
+      "base_functions": 198,
+      "sha256": "e94ca9c3a4dfb44926d5d059ccdfb24df3fbecdfd30f462f48d5d252364d83fa"
+    },
+    "retained_items": 601,
+    "removed": [
+      "tests/test_app.py::test_complete_turn_sqlite_failure_becomes_unknown_without_assistant",
+      "tests/test_app.py::test_legacy_assistant_model_name_survives_provenance_migration_and_api"
+    ],
+    "added": [
+      "tests/test_schema_contract.py::test_existing_trigger_is_refused_before_provider_and_without_writes",
+      "tests/test_schema_contract.py::test_explicit_legacy_export_preserves_api_provenance_and_source[False]",
+      "tests/test_schema_contract.py::test_explicit_legacy_export_preserves_api_provenance_and_source[True]",
+      "tests/test_schema_contract.py::test_export_does_not_modify_existing_target",
+      "tests/test_schema_contract.py::test_export_refuses_unreviewed_sources_and_rolls_back[duplicate]",
+      "tests/test_schema_contract.py::test_export_refuses_unreviewed_sources_and_rolls_back[trigger]",
+      "tests/test_schema_contract.py::test_export_refuses_unreviewed_sources_and_rolls_back[unknown_status]",
+      "tests/test_schema_contract.py::test_post_admission_sqlite_failure_rolls_back_turn_and_reports_unknown"
+    ]
+  }
+}

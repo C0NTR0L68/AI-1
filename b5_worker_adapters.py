@@ -3,6 +3,7 @@ from asyncio.proactor_events import BaseProactorEventLoop
 from asyncio.selector_events import BaseSelectorEventLoop
 from contextlib import contextmanager
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -40,8 +41,17 @@ def _private_pair(audit):
         raise
 
 
+def _node_summary(stdout):
+    if type(stdout) is not str:
+        return None
+    metrics = re.findall(r"^# (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$", stdout, re.MULTILINE)
+    if len(metrics) != 6 or len({name for name, _ in metrics}) != 6:
+        return None
+    return {name: int(count) for name, count in metrics}
+
+
 @contextmanager
-def scoped_worker_adapters(audit, *, python, node, suite, scratch, system_root):
+def scoped_worker_adapters(audit, *, python, node, suite, scratch, system_root, node_results=None):
     """Install only in a verified guest worker that is already in a private Job."""
     original_pair = socket.socketpair
     original_popen = subprocess.Popen
@@ -82,10 +92,19 @@ def scoped_worker_adapters(audit, *, python, node, suite, scratch, system_root):
                 case = "security_import"
             plan = child_plan(case, argv, python=python, node=node, suite=suite,
                               scratch=scratch, system_root=system_root)
+            self._b5_case = case
+            self._b5_node_recorded = False
             kwargs.update(cwd=plan.cwd, executable=plan.executable, env=dict(plan.environment))
             with audit.scoped(plan):
                 super().__init__(argv, **kwargs)
             children.append(self)
+
+        def communicate(self, *args, **kwargs):
+            result = super().communicate(*args, **kwargs)
+            if node_results is not None and self._b5_case == "node_ui" and not self._b5_node_recorded:
+                node_results.append(_node_summary(result[0]))
+                self._b5_node_recorded = True
+            return result
 
     socket.socketpair = socketpair
     subprocess.Popen = PinnedPopen

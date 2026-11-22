@@ -11,6 +11,20 @@ from zipfile import ZipFile
 
 
 ARCHIVE_SHA = "569FD484C31746A0A3A2DA0D133C2EEB8D426C607E71888F2CE113A43F69D8E7"
+SCHEMA_REVISION_SHA = "4BCE5F2BEF7CB4374CB42F8AFDD56C6BC5304CAD7A5754282E5808C417A66D15"
+SCHEMA_DESCRIPTOR_SHA = "56B59923D8A4BB7E6E03D620019467B6B2C55729B4A8F3722503F276B81D8134"
+SCHEMA_FROZEN_MANIFEST_SHA = "52997E9F64227787DCD56D36D3D07978F161CAA169DDAC589D861A23DCCCADCC"
+SCHEMA_COLLECTION_SHA = "e94ca9c3a4dfb44926d5d059ccdfb24df3fbecdfd30f462f48d5d252364d83fa"
+SCHEMA_CASES = {
+    "test_existing_trigger_is_refused_before_provider_and_without_writes",
+    "test_post_admission_sqlite_failure_rolls_back_turn_and_reports_unknown",
+    "test_explicit_legacy_export_preserves_api_provenance_and_source[False]",
+    "test_explicit_legacy_export_preserves_api_provenance_and_source[True]",
+    "test_export_refuses_unreviewed_sources_and_rolls_back[trigger]",
+    "test_export_refuses_unreviewed_sources_and_rolls_back[duplicate]",
+    "test_export_refuses_unreviewed_sources_and_rolls_back[unknown_status]",
+    "test_export_does_not_modify_existing_target",
+}
 
 
 def _sha(path):
@@ -29,11 +43,12 @@ def _member(name):
 
 def _verify_packages(root):
     archive = root.parent / "AI-1-B5-Offline.zip"
-    if _sha(archive) != ARCHIVE_SHA.lower():
+    archive_pin = _sha(archive).upper()
+    if archive_pin not in (ARCHIVE_SHA, SCHEMA_REVISION_SHA):
         raise RuntimeError("Offline package hash mismatch")
     with ZipFile(archive) as original:
         expected = json.loads(original.read("MANIFEST.json"))
-    if len(expected) != 697:
+    if len(expected) != (700 if archive_pin == SCHEMA_REVISION_SHA else 697):
         raise RuntimeError("Offline manifest shape")
     for name, pin in expected.items():
         path = root.joinpath(*_member(name).parts)
@@ -45,6 +60,18 @@ def _verify_packages(root):
         info = path.lstat()
         if path.is_symlink() or path.is_junction() or info.st_nlink != 1 or _sha(path) != pin.lower():
             raise RuntimeError("Unverified package member")
+    if (archive_pin == SCHEMA_REVISION_SHA) != (_schema_revision(root) is not None):
+        raise RuntimeError("Archive revision descriptor mismatch")
+
+
+def _schema_revision(root):
+    path = root / "REVISION.json"
+    if not path.exists():
+        return None
+    if (_sha(path).upper() != SCHEMA_DESCRIPTOR_SHA
+            or _sha(root / "frozen/release-manifest.json").upper() != SCHEMA_FROZEN_MANIFEST_SHA):
+        raise RuntimeError("Unverified candidate revision")
+    return json.loads(path.read_bytes())
 
 
 def _prepare(root):
@@ -86,9 +113,46 @@ def _inventory(suite):
         source = ast.parse(path.read_bytes())
         expected.update((path.name, node.name) for node in source.body
                         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"))
-    if len(expected) != 195:
+    revision = _schema_revision(suite.parent)
+    if len(expected) != (198 if revision else 195):
         raise RuntimeError("Unexpected frozen test inventory")
+    if revision and {f"tests/{name}::{case}" for name, case in expected} != set(revision["expected_base_ids"]):
+        raise RuntimeError("Frozen candidate test identifiers changed")
     return expected
+
+
+def _candidate_assets(factory, test_file):
+    """Substitute admitted assets only at the reviewed placeholder fixture."""
+    placeholder = {name: b"synthetic" for name in ("index.html", "app.js", "style.css")}
+
+    def create_app(*args, **kwargs):
+        caller = sys._getframe(1).f_code
+        if (Path(caller.co_filename) == test_file and caller.co_name == "app_for"
+                and kwargs.get("assets") == placeholder):
+            kwargs["assets"] = None
+        return factory(*args, **kwargs)
+    return create_app
+
+
+def verify_collection(items, expected, revision):
+    collected = {(Path(item.path).name, item.originalname or item.name.split("[", 1)[0])
+                 for item in items}
+    if collected != expected:
+        raise RuntimeError("Collected tests differ from frozen inventory")
+    result = {"base_functions": len(collected), "collected": len(items)}
+    if revision:
+        case_ids = sorted(item.nodeid.replace("\\", "/") for item in items)
+        overlay = {case.rsplit("::", 1)[-1] for case in case_ids
+                   if case.startswith("tests/test_schema_contract.py::")}
+        if (len(case_ids) != revision["expected_collected"]
+                or len(set(case_ids)) != len(case_ids) or overlay != SCHEMA_CASES):
+            raise RuntimeError("Expanded candidate inventory differs")
+        result["collection_sha256"] = hashlib.sha256(
+            ("\n".join(case_ids) + "\n").encode("utf8")
+        ).hexdigest()
+        if result["collection_sha256"] != SCHEMA_COLLECTION_SHA:
+            raise RuntimeError("Expanded candidate collection hash mismatch")
+    return result
 
 
 class CanonicalFixturePath:
@@ -117,7 +181,7 @@ class CanonicalFixturePath:
 
 def _worker(root, mode):
     sys.path[:0] = [str(root.parent / "runner"), str(root / "deps")]
-    from adapters import prepare_candidate
+    import adapters
     from guard import Policy
     from harness import pytest_plan
     from b5_admission import AdmissionDenied, ScopedWorkerAudit
@@ -128,6 +192,9 @@ def _worker(root, mode):
     import pytest
 
     suite, temp = root / "suite", root / "temp"
+    revision = _schema_revision(root)
+    if revision:
+        adapters.MANIFEST_SHA = SCHEMA_FROZEN_MANIFEST_SHA
     python = root / "runtime/python/python.exe"
     node = root / "runtime/node/node.exe"
     fixture_path = CanonicalFixturePath()
@@ -148,15 +215,11 @@ def _worker(root, mode):
     audit = ScopedWorkerAudit(policy.audit)
     expected = _inventory(suite)
     evidence = {"mode": mode, "socketpair": False, "external_socket_denied": False, "items": []}
+    node_results = []
 
     class Results:
         def pytest_collection_finish(self, session):
-            collected = {(Path(item.path).name, item.originalname or item.name.split("[", 1)[0])
-                         for item in session.items}
-            if collected != expected:
-                raise RuntimeError("Collected tests differ from frozen inventory")
-            evidence["base_functions"] = len(collected)
-            evidence["collected"] = len(session.items)
+            evidence.update(verify_collection(session.items, expected, revision))
 
         def pytest_runtest_logreport(self, report):
             evidence["items"].append([report.nodeid, report.when, report.outcome])
@@ -186,7 +249,8 @@ def _worker(root, mode):
 
     sys.addaudithook(audit.audit)
     with scoped_worker_adapters(audit, python=python, node=node, suite=suite,
-                                scratch=temp, system_root=Path(os.environ["SystemRoot"])):
+                                scratch=temp, system_root=Path(os.environ["SystemRoot"]),
+                                node_results=node_results):
         evidence["socketpair"] = asyncio.run(smoke()) is True
         try:
             socket.socket()
@@ -201,14 +265,21 @@ def _worker(root, mode):
                 raise AdmissionDenied("GUEST_CHILD_CANARY")
             code = 0
         else:
-            _, restore = prepare_candidate(root / "frozen", policy)
+            app_main, restore = adapters.prepare_candidate(root / "frozen", policy)
+            if revision:
+                app_main.create_app = _candidate_assets(
+                    app_main.create_app, suite / "tests/test_schema_contract.py"
+                )
             try:
                 args = pytest_plan(root, suite)
                 args[args.index("--basetemp") + 1] = str(temp / ("pytest-" + uuid4().hex))
                 code = pytest.main([*args, "--noconftest", "-p", "no:faulthandler"], plugins=[Results()])
             finally:
                 restore()
-    if code == 0 and policy.denials:
+    evidence["node_results"] = node_results
+    if code == 0 and (policy.denials or revision and mode == "suite" and node_results != [
+        {"tests": 22, "pass": 22, "fail": 0, "cancelled": 0, "skipped": 0, "todo": 0}
+    ]):
         code = 75
     evidence["exit"] = int(code)
     evidence["denials"] = policy.denials

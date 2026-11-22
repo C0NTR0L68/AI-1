@@ -5,8 +5,8 @@ import subprocess
 import pytest
 
 from b5_admission import AdmissionDenied, ChildPlan, ScopedWorkerAudit
-from b5_guest import CanonicalFixturePath, _member
-from b5_worker_adapters import _private_pair, scoped_worker_adapters
+from b5_guest import CanonicalFixturePath, _candidate_assets, _member
+from b5_worker_adapters import _node_summary, _private_pair, scoped_worker_adapters
 import b5_worker_adapters as adapters
 import b5_worker_job as job
 
@@ -31,6 +31,27 @@ def test_canonical_fixture_scope_accepts_only_exact_alias(tmp_path):
     base.mkdir()
     with pytest.raises(PermissionError):
         fixture.arm(tmp_path)
+
+
+def test_candidate_assets_substitution_is_bound_to_exact_fixture(tmp_path):
+    test_file = tmp_path / "test_schema_contract.py"
+    namespace = {}
+    exec(compile("def app_for(factory, assets): return factory(assets=assets)",
+                 str(test_file), "exec"), namespace)
+    adapter = _candidate_assets(lambda *, assets: assets, test_file)
+    placeholder = {name: b"synthetic" for name in ("index.html", "app.js", "style.css")}
+    assert namespace["app_for"](adapter, placeholder) is None
+    assert adapter(assets=placeholder) == placeholder
+    changed = {**placeholder, "app.js": b"unreviewed"}
+    assert namespace["app_for"](adapter, changed) == changed
+
+
+def test_node_summary_requires_all_unique_tap_counters():
+    expected = {"tests": 22, "pass": 22, "fail": 0, "cancelled": 0, "skipped": 0, "todo": 0}
+    output = "\n".join(f"# {name} {count}" for name, count in expected.items())
+    assert _node_summary(output) == expected
+    assert _node_summary(output + "\n# fail 1") is None
+    assert _node_summary("# pass 22") is None
 
 
 def test_partial_self_pipe_cleans_owned_resources(monkeypatch):

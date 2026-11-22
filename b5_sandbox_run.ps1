@@ -2,11 +2,19 @@ param(
     [Parameter(Mandatory)][Guid] $SandboxId,
     [Parameter(Mandatory)][Guid] $TransferId,
     [Parameter(Mandatory)][string] $FrozenHarness,
-    [ValidateSet("preflight","suite")][string] $Mode = "preflight"
+    [ValidateSet("preflight","suite")][string] $Mode = "preflight",
+    [switch] $SchemaRevision
 )
 $ErrorActionPreference = "Stop"
 $root = "C:\Users\Public\Documents\AI1-B5-" + $TransferId.ToString("N")
 $zipSha = "569FD484C31746A0A3A2DA0D133C2EEB8D426C607E71888F2CE113A43F69D8E7"
+$expectedBase = 195
+$expectedCases = 603
+if ($SchemaRevision) {
+    $zipSha = "4BCE5F2BEF7CB4374CB42F8AFDD56C6BC5304CAD7A5754282E5808C417A66D15"
+    $expectedBase = 198
+    $expectedCases = 609
+}
 $pySha = "42AC541168E97DEDB9AABD8BE335539FC41C682E414B9E8D137B164FB68683B0"
 $baseline = @{
     "guard.py" = "D643E34C31CAC0CA1446669C873681E4783F771F872385803C82B9DBC1F6D044"
@@ -74,7 +82,7 @@ $run = '$ErrorActionPreference=''Stop'';$r='''+$root+''';'+$strictSources+
     '$ErrorActionPreference=''Continue'';' +
     '& $y -I -S -B (Join-Path $r ''runner\b5_guest.py'') $p '''+$Mode+''' *> $log;exit $LASTEXITCODE'
 $code = Invoke-Guest $run
-$report = [ordered]@{ mode = $Mode; exit = $code; sandbox = $SandboxId; transfer = $TransferId }
+$report = [ordered]@{ mode = $Mode; exit = $code; sandbox = $SandboxId; transfer = $TransferId; archiveSha256 = $zipSha }
 if ($code -ne 0) {
     $diagnostic = '$p='''+$root+'\guest-'+$Mode+'.console.log'';' +
         'if(!(Test-Path -LiteralPath $p -PathType Leaf)){exit 90};$s=Get-Content -LiteralPath $p -Raw;' +
@@ -98,7 +106,32 @@ if ($Mode -eq "suite") {
         $value = Invoke-Guest ($read + $metrics[$name])
         $report[$name] = if ($value -lt 10000) { $value } else { $null }
     }
-    if ($code -eq 0 -and ($report.baseFunctions -ne 195 -or $report.collected -le 0 -or
+    if ($SchemaRevision) {
+        $checks = [ordered]@{
+            expectedCollection = 'exit [int]($r.collection_sha256 -eq ''e94ca9c3a4dfb44926d5d059ccdfb24df3fbecdfd30f462f48d5d252364d83fa'')'
+            passedSchemaCases = 'exit @($r.items|Where-Object{$_[0] -match ''^tests/test_schema_contract\.py::'' -and $_[1] -eq ''call'' -and $_[2] -eq ''passed''}).Count'
+            completedPhases = 'exit @($r.items).Count'
+            unexpectedDenials = 'exit @($r.denials).Count'
+        }
+        foreach ($name in $checks.Keys) {
+            $value = Invoke-Guest ($read + $checks[$name])
+            $report[$name] = if ($value -lt 10000) { $value } else { $null }
+        }
+        foreach ($name in "tests","pass","fail","cancelled","skipped","todo") {
+            $value = Invoke-Guest ($read + 'if($r.node_results.Count -ne 1 -or !$r.node_results[0]){exit 10003};exit [int]$r.node_results[0].'+$name)
+            $report[('node_' + $name)] = if ($value -lt 10000) { $value } else { $null }
+        }
+        if ($code -eq 0 -and ($report.expectedCollection -ne 1 -or $report.passedSchemaCases -ne 8 -or
+            $report.completedPhases -ne 3 * $expectedCases -or $null -eq $report.unexpectedDenials -or
+            $report.unexpectedDenials -ne 0 -or $report.node_tests -ne 22 -or $report.node_pass -ne 22 -or
+            @("fail","cancelled","skipped","todo" | Where-Object {
+                $null -eq $report["node_$_"] -or $report["node_$_"] -ne 0
+            }).Count -ne 0)) {
+            $code = 76
+            $report.exit = $code
+        }
+    }
+    if ($code -eq 0 -and ($report.baseFunctions -ne $expectedBase -or $report.collected -ne $expectedCases -or
         $report.passedCalls -ne $report.collected -or $report.unsuccessfulPhases -ne 0 -or $report.nodeTestPassed -ne 1)) {
         $code = 74
         $report.exit = $code
