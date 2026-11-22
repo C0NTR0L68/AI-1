@@ -1,0 +1,42 @@
+{
+  "base_commit": "622755d1455bf709c650da315b8eee37056c85b6",
+  "baseline_control": {
+    "collected": 603,
+    "failed": 2,
+    "passed": 601
+  },
+  "baseline_sha256": "569FD484C31746A0A3A2DA0D133C2EEB8D426C607E71888F2CE113A43F69D8E7",
+  "candidate_case_mapping": {
+    "test_complete_turn_sqlite_failure_becomes_unknown_without_assistant": [
+      "test_existing_trigger_is_refused_before_provider_and_without_writes",
+      "test_post_admission_sqlite_failure_rolls_back_turn_and_reports_unknown"
+    ],
+    "test_legacy_assistant_model_name_survives_provenance_migration_and_api": [
+      "test_explicit_legacy_export_preserves_api_provenance_and_source",
+      "test_export_refuses_unreviewed_sources_and_rolls_back",
+      "test_export_does_not_modify_existing_target"
+    ]
+  },
+  "original_test_sha256": {
+    "suite/tests/test_app.py": "EF09E8ADB9F4C1CC90FD3DDE6EB1F501CDF1621B0EA5F6FA644B1B45EC43DD15",
+    "suite/tests/test_local_requests.py": "8249873C5887CEC0AEE4EAA77ECD2713D013C2C13BD4C51B3D143A5AF2369EE5",
+    "suite/tests/test_memory.py": "8F0EB587E7D4D84CFCBE8847E7862775B0DE3E831709727C8E5E7A8D84697BED",
+    "suite/tests/test_memory_security.py": "74AFCD72C5C6A2EB118254888228FC4A56F58D41154145F115E96C9DBF4CF814",
+    "suite/tests/test_policy.py": "D5599B54A3C52EB2354BA97060DA771D1FA70EEF644AACB491F5A0B79A91DB60",
+    "suite/tests/test_router.py": "54409AD4CC42668271FF419A01229AA64E6A033843B645CA539F6A1F3CC1A43E",
+    "suite/tests/test_ui.py": "BD76712F2A7C96906EE7BB865135CA4188057F77F655371A71FFF535A95F796F",
+    "suite/tests/ui/app.test.cjs": "2867B8D5FE9E346CA1692F78F9F2E06C9E2BD3D5B2E19FBBE3EDB9182D3EEFFD"
+  },
+  "overlay": {
+    "history_migration.py": "frozen/release/app/history_migration.py",
+    "test_schema_contract.py": "suite/tests/test_schema_contract.py"
+  },
+  "proposal_sha256": {
+    "README.md": "8EFA63EF249498DAF3C443D5C9A6B1AC47E25C3D3CC6CC971523FF78DF494D41",
+    "history_migration.py": "0C776ED58231B22F0AF50987F47E190193C0056B8EFEFE90B240E423E6F21F10",
+    "run_focused.py": "6595C013FA26F745A886E16C3A1499FB3FD77D8518966AA38D40B011BCAE0D52",
+    "test_schema_contract.py": "9B0095EDD4A0C2E6A7951C5E4C1770B50BD97B04BEAB4DDB4AB9E2DA72617D85"
+  },
+  "status": "PROPOSED_NOT_APPROVED",
+  "unchanged_preflight_sha256": "46FD8736CD6A63E76BE1D8699F097FF4515C6C84101B39A40F3FBFC8584CEE77"
+}
