@@ -1,0 +1,111 @@
+{
+  "revision": "8f6ddabd66a29ca2b497c564f9bb78f854f09937",
+  "old_archive_sha256": "D7A66AB9D40C0EEDBEE1B0E407620413512899BE1046C9F566CE429A9C267A86",
+  "files": [
+    {
+      "path": "app/__init__.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "transport_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "app/memory.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "F270CF0C1EC3ACB4B48DC2B31A83F3F72BFEDA3B3BE9D30AE315781AD253DFFD",
+      "transport_sha256": "FB62473E88090CBB2D2DE2E8C7EE644695E8361C87FB4DFAD109A8F891A81C52"
+    },
+    {
+      "path": "app/memory_archive_publish_v2.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "763E8DDF8B23F044DD20956C1308A3C4B772461B60C8C0BB3CC4DBCCF30C8430",
+      "transport_sha256": "763E8DDF8B23F044DD20956C1308A3C4B772461B60C8C0BB3CC4DBCCF30C8430"
+    },
+    {
+      "path": "app/memory_archive_v2.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "4A844DF20901BBB49CC896B6FB49C81FF1A5459ADF682F22EF553EAF7470672E",
+      "transport_sha256": "7A4B5B8AA05F27EA65212FFCCFB1891174D0E839FF278CA4B550A39BBC99EA59"
+    },
+    {
+      "path": "app/memory_crypto.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "6497F72FD968193E2BD6ABE94BB23EF49DF721BF389B94E7923F62F13F322624",
+      "transport_sha256": "6497F72FD968193E2BD6ABE94BB23EF49DF721BF389B94E7923F62F13F322624"
+    },
+    {
+      "path": "app/memory_head_v2.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "41C3F0E7C24889222F414E6E80479B781C3AFF87CFE002858A8436D0DFA12B93",
+      "transport_sha256": "41C3F0E7C24889222F414E6E80479B781C3AFF87CFE002858A8436D0DFA12B93"
+    },
+    {
+      "path": "app/memory_image_ledger.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "AE799D54BF4AF42C9AD1FAABA221139C311CA852388CD4D4D4B4A434109500BF",
+      "transport_sha256": "AE799D54BF4AF42C9AD1FAABA221139C311CA852388CD4D4D4B4A434109500BF"
+    },
+    {
+      "path": "app/memory_keys_v2.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "9F185445B1D7A79644098BC6BF6ED61964D9F68E6A62010A3EDA041274EE48DE",
+      "transport_sha256": "FF88081E781F4192A23F83C5CF2DBA710B24C4DA16146A5C5C3B4C7BB8FE0A63"
+    },
+    {
+      "path": "app/memory_ledger.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "16C0483B7D53C1A7AF3048147F802F34C70DC852CF3A34FB5BE8F4C5D4474862",
+      "transport_sha256": "5B2C4163B063E2C27200FEB0BDA7FE278F739B17E40DEF648C1521EABCF453D5"
+    },
+    {
+      "path": "app/memory_reconciliation.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "64D1115647B773C3967C4362A9A059C293FE15195D4A66A39525EF464D75085B",
+      "transport_sha256": "08E4A588296DC56DACF7329BC58F83B9C641CCD809DDED2B736BBB0728B899AE"
+    },
+    {
+      "path": "app/memory_security.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "96A33A1C39F7D8A83A85E5FC1FC774BC1D51E5A036EA3CC611DBABA30E224E85",
+      "transport_sha256": "ED8102473681C97B951D07E2F9BA131C2A7A2154E45BCA92AC420D19B81574B9"
+    },
+    {
+      "path": "app/memory_snapshot_v2.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "9F28A483DADB6D77B3C48A3BEF172390C4C4E9D02CCA3F722E979BC6305E144F",
+      "transport_sha256": "9F28A483DADB6D77B3C48A3BEF172390C4C4E9D02CCA3F722E979BC6305E144F"
+    },
+    {
+      "path": "app/memory_storage_policy.py",
+      "classification": "git_checkout_crlf_only",
+      "exact": false,
+      "git_sha256": "B4E6A267F1D95E8E2E7F7CBCD0D9D0154C69F070B98CA0BFE942F4C6544E67CC",
+      "transport_sha256": "5481C7D5951014D3CBB56201229FB1407202F8871F965DB58BBDFB17143B3614"
+    },
+    {
+      "path": "app/memory_windows_archive.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "57807579826E2CBFCEB9D9B5CA3519943C2E841EDE3F495298F5C2D0FB6307FB",
+      "transport_sha256": "57807579826E2CBFCEB9D9B5CA3519943C2E841EDE3F495298F5C2D0FB6307FB"
+    },
+    {
+      "path": "app/windows_storage_inspector.py",
+      "classification": "identical",
+      "exact": true,
+      "git_sha256": "C318B52A39C4A96313A65D13901D4088C24AC7C5B27B62EA3D548A2C3BF04DCC",
+      "transport_sha256": "C318B52A39C4A96313A65D13901D4088C24AC7C5B27B62EA3D548A2C3BF04DCC"
+    }
+  ]
+}
