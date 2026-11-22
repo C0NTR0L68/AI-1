@@ -54,3 +54,29 @@ Guest-only integration still needs a trusted self-pipe call site and cleanup
 on partial construction, checked runtime custody through CreateProcess,
 bounded process-tree custody and per-test evidence. The immutable full
 launcher remains disabled. Original Python/Node tests remain NOT_RUN.
+
+## Guest worker candidate
+
+The new guest entrypoint verifies the original archive and its member hashes,
+expands the pinned wheels offline, and checks the original 195-function
+inventory. Its preflight exercises the scoped asyncio self-pipe and one
+exact pinned Python child. The suite entry requires that preflight result
+and captures pytest phase outcomes. Existing frozen files and assertions
+are unchanged. The host entrypoint passes inputs through a single qualified
+Sandbox session and refuses an incomplete archive.
+
+The supervisor creates the worker suspended with a reduced environment and
+no inherited handles, assigns it to a private Job, verifies membership and
+resumes. It checks for an empty Job and rejects a nominally successful run
+that left processes running. The Job excludes breakaway and is configured
+for termination on close. The worker additionally checks its Job limits,
+uses finite socket timeouts and only installs the scoped audit adapter while
+it owns execution. The guest OS boundary is still required.
+
+Synthetic regressions cover staging, admission, cleanup after partial socket
+creation, the fixed child wrapper, suspend-before-assignment, and timeout
+cleanup. A separate native guest probe ran a suspended System32 canary,
+observed its expected exit and reached an empty Job on retry. Its stricter
+total-process count differed from one, so that probe did not fully pass.
+Neither the synthetic regressions nor the system canary qualify the frozen
+Python and Node launch path.
