@@ -125,3 +125,41 @@ def require_current_head(observed, authority):
     if type(live) is not Head or live != observed:
         raise HeadUnavailable("head_mismatch")
     return live
+
+
+class AuthorityArchiveBackend:
+    """Bind the image ledger to a live authority and handle-verified archives.
+
+    The trusted read/publish callables must enforce file identity and durability.
+    If the authority is unavailable, the adapter has no cached head to use.
+    """
+
+    def __init__(self, authority, *, generation, read_archive, publish_archive):
+        if type(generation) is not UUID or generation.int == 0:
+            raise ValueError("Expected generation required")
+        if not callable(read_archive) or not callable(publish_archive):
+            raise TypeError("Trusted archive operations required")
+        self._authority = authority
+        self._generation = generation
+        self.read = read_archive
+        self.publish = publish_archive
+
+    def _current(self):
+        head = self._authority.read()
+        if type(head) is not Head or head.generation != self._generation:
+            raise HeadUnavailable("head_generation_mismatch")
+        return head
+
+    def head(self):
+        return self._current().digest
+
+    def advance(self, expected, digest):
+        current = self._current()
+        if current.digest != expected or current.revision == _MAX_REVISION:
+            return False
+        from app.memory_archive_v2 import open_archived_state
+
+        with open_archived_state(self.read(digest), approved_archive_pin=digest) as (_, generation, _):
+            if generation != current.generation:
+                raise HeadUnavailable("archive_generation_mismatch")
+        return self._authority.advance(current, Head(generation, current.revision + 1, digest))

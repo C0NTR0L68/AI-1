@@ -13,6 +13,7 @@ from app import memory_image_ledger
 from app.memory_archive_publish_v2 import publish_archive, read_published_archive
 from app.memory_archive_v2 import ArchiveUnavailable, build_archive
 from app.memory_crypto import unprotect_for_current_user
+from app.memory_head_v2 import AuthorityArchiveBackend, DurableHeadRegistry, Head
 from app.memory_image_ledger import ImageCommitUnconfirmed, MemoryImageLedger
 from app.memory_keys_v2 import issue_receipt_key
 from app.memory_ledger import MemoryLedger, MemoryLedgerConflict
@@ -20,6 +21,7 @@ from app.memory_security import MemoryAccessGuard, SecurityDenied
 from app.windows_storage_inspector import hold_archive_directory, inspect_component, read_pinned_artifact
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Native Windows DPAPI and archive handles")
+_AUTHORITY_CONNECT = sqlite3.connect
 
 
 @pytest.fixture
@@ -199,3 +201,33 @@ def test_two_writers_cannot_replace_each_others_head(test_store, monkeypatch):
     assert outcomes.count(True) == 1
     assert len(ledger.read(generation)) == 1
     assert [(ledger.snapshot(rid).receipt is not None) for rid in operations] == outcomes
+
+
+def test_live_durable_head_refuses_previous_sealed_archive(test_store, tmp_path):
+    _, archive, generation = test_store
+    initial = archive.read(archive.head())
+    initial_head = Head(generation, 0, archive.head())
+    authority_db = tmp_path / "isolated-authority.sqlite"
+    DurableHeadRegistry(lambda: _AUTHORITY_CONNECT(authority_db)).provision(initial_head)
+
+    def reopen(read_archive):
+        authority = DurableHeadRegistry(
+            lambda: _AUTHORITY_CONNECT(authority_db.as_uri() + "?mode=rw", uri=True)
+        )
+        backend = AuthorityArchiveBackend(authority, generation=generation,
+                                          read_archive=read_archive, publish_archive=archive.publish)
+        return authority, MemoryImageLedger(backend, receipt_budget=32)
+
+    authority, ledger = reopen(archive.read)
+    guard, headers = session()
+    rid = uuid4()
+    receipt = make(ledger, guard, headers, generation, rid)
+    assert not receipt.replayed
+    new_head = authority.read()
+    assert new_head.revision == 1 and new_head.digest != initial_head.digest
+    authority, restarted = reopen(archive.read)
+    assert make(restarted, guard, headers, generation, rid).replayed
+    _, rolled_back = reopen(lambda _: initial)
+    with pytest.raises(ArchiveUnavailable):
+        rolled_back.read(generation)
+    assert authority.read() == new_head

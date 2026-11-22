@@ -35,6 +35,10 @@ administrative operation and is currently unavailable.
   archive reads must hash bytes read through the inspected handle and compare
   with the live digest. No local cached head or newest-on-disk search grants
   permission to read or publish. An orphaned archive remains unpublished.
+- The isolated backend adapter checks the generation inside the candidate
+  archive before submitting CAS. A Windows synthetic integration test reopens
+  the registry and serves a formerly valid sealed archive to the reader to
+  confirm rejection. It uses a test authority in temporary storage.
 
 Service creation and DACL setup need a separate owner authorization. See
 [service SID modes](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info)
