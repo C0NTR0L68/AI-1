@@ -44,10 +44,13 @@ def _private_pair(audit):
 def _node_summary(stdout):
     if type(stdout) is not str:
         return None
-    metrics = re.findall(r"^# (tests|pass|fail|cancelled|skipped|todo) (\d+)\s*$", stdout, re.MULTILINE)
-    if len(metrics) != 6 or len({name for name, _ in metrics}) != 6:
+    # The pinned Node 24 uses spec for piped stdout. Accept complete TAP too.
+    metrics = re.findall(r"^(#|\u2139) (tests|pass|fail|cancelled|skipped|todo) ([0-9]+)$",
+                         stdout, re.MULTILINE)
+    if (len(metrics) != 6 or len({name for _, name, _ in metrics}) != 6
+            or len({style for style, _, _ in metrics}) != 1):
         return None
-    return {name: int(count) for name, count in metrics}
+    return {name: int(count) for _, name, count in metrics}
 
 
 @contextmanager

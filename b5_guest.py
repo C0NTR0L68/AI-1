@@ -1,5 +1,6 @@
 """Disposable Windows B5 entry. The host must attest the Windows Sandbox first."""
 import ast
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import os
@@ -134,6 +135,27 @@ def _candidate_assets(factory, test_file):
     return create_app
 
 
+@contextmanager
+def _disable_pytest_current_link(pathlib_module, basetemp):
+    """Omit pytest's optional newest-directory shortcut inside this run."""
+    original = pathlib_module._force_symlink
+    allocator = pathlib_module.make_numbered_dir.__code__
+
+    def force_symlink(root, name, directory):
+        if (sys._getframe(1).f_code is allocator and root == basetemp
+                and directory.parent == root and name.endswith("current")):
+            prefix = name.removesuffix("current")
+            if directory.name.startswith(prefix) and directory.name[len(prefix):].isdecimal():
+                return
+        return original(root, name, directory)
+
+    pathlib_module._force_symlink = force_symlink
+    try:
+        yield
+    finally:
+        pathlib_module._force_symlink = original
+
+
 def verify_collection(items, expected, revision):
     collected = {(Path(item.path).name, item.originalname or item.name.split("[", 1)[0])
                  for item in items}
@@ -190,6 +212,7 @@ def _worker(root, mode):
     import socket
     import subprocess
     import pytest
+    from _pytest import pathlib as pytest_pathlib
 
     suite, temp = root / "suite", root / "temp"
     revision = _schema_revision(root)
@@ -272,8 +295,11 @@ def _worker(root, mode):
                 )
             try:
                 args = pytest_plan(root, suite)
-                args[args.index("--basetemp") + 1] = str(temp / ("pytest-" + uuid4().hex))
-                code = pytest.main([*args, "--noconftest", "-p", "no:faulthandler"], plugins=[Results()])
+                basetemp = temp / ("pytest-" + uuid4().hex)
+                args[args.index("--basetemp") + 1] = str(basetemp)
+                shortcuts = _disable_pytest_current_link(pytest_pathlib, basetemp) if revision else nullcontext()
+                with shortcuts:
+                    code = pytest.main([*args, "--noconftest", "-p", "no:faulthandler"], plugins=[Results()])
             finally:
                 restore()
     evidence["node_results"] = node_results

@@ -1,11 +1,12 @@
 """Synthetic worker regressions. Never create native sockets or processes."""
 import socket
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
 from b5_admission import AdmissionDenied, ChildPlan, ScopedWorkerAudit
-from b5_guest import CanonicalFixturePath, _candidate_assets, _member
+from b5_guest import CanonicalFixturePath, _candidate_assets, _disable_pytest_current_link, _member
 from b5_worker_adapters import _node_summary, _private_pair, scoped_worker_adapters
 import b5_worker_adapters as adapters
 import b5_worker_job as job
@@ -46,12 +47,38 @@ def test_candidate_assets_substitution_is_bound_to_exact_fixture(tmp_path):
     assert namespace["app_for"](adapter, changed) == changed
 
 
-def test_node_summary_requires_all_unique_tap_counters():
+@pytest.mark.parametrize("style", ["#", "\u2139"])
+def test_node_summary_requires_all_unique_counters(style):
     expected = {"tests": 22, "pass": 22, "fail": 0, "cancelled": 0, "skipped": 0, "todo": 0}
-    output = "\n".join(f"# {name} {count}" for name, count in expected.items())
+    output = "\n".join(f"{style} {name} {count}" for name, count in expected.items())
     assert _node_summary(output) == expected
     assert _node_summary(output + "\n# fail 1") is None
+    assert _node_summary(output.replace(f"{style} fail", f"{'X' if style == '#' else '#'} fail")) is None
     assert _node_summary("# pass 22") is None
+
+
+def test_only_pytest_numbered_directory_shortcut_is_omitted(tmp_path):
+    basetemp = tmp_path / "owned"
+    received = []
+
+    def original(*args):
+        received.append(args)
+
+    def allocator(*args):
+        module._force_symlink(*args)
+
+    module = SimpleNamespace(_force_symlink=original, make_numbered_dir=allocator)
+    shortcut = (basetemp, "casecurrent", basetemp / "case0")
+    elsewhere = (tmp_path, "casecurrent", tmp_path / "case0")
+    other = (basetemp, "casecurrent", basetemp / "other0")
+    with _disable_pytest_current_link(module, basetemp):
+        allocator(*shortcut)
+        assert received == []
+        module._force_symlink(*shortcut)
+        allocator(*elsewhere)
+        allocator(*other)
+    assert received == [shortcut, elsewhere, other]
+    assert module._force_symlink is original
 
 
 def test_partial_self_pipe_cleans_owned_resources(monkeypatch):
