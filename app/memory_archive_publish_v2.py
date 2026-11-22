@@ -53,7 +53,15 @@ def read_published_archive(directory, *, fingerprint, hold_directory, read_bound
         raise PublicationUnconfirmed("archive_publication_unconfirmed") from None
 
 
-def publish_archive(archive, directory, *, hold_directory, read_bound):
+def _write_pending(path, data):
+    with path.open("xb") as stream:
+        if stream.write(data) != len(data):
+            raise PublicationUnconfirmed("archive_publication_unconfirmed")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def publish_archive(archive, directory, *, hold_directory, read_bound, write_pending=_write_pending):
     """Flush a new candidate, rename without overwrite, then verify by handle.
 
     Existing final files are never replaced. Failed/ambiguous operations leave
@@ -75,11 +83,7 @@ def publish_archive(archive, directory, *, hold_directory, read_bound):
                 reused = True  # includes a dangling link; read_bound must reject it
             if not reused:
                 pending = directory / (".memory-" + uuid4().hex + ".pending")
-                with pending.open("xb") as stream:
-                    if stream.write(archive.data) != len(archive.data):
-                        raise PublicationUnconfirmed("archive_publication_unconfirmed")
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                write_pending(pending, archive.data)
                 if not _matches(read_bound(pending, MAX_ARCHIVE), archive.fingerprint):
                     raise PublicationUnconfirmed("archive_publication_unconfirmed")
                 # Same-directory Windows rename fails if destination exists.
