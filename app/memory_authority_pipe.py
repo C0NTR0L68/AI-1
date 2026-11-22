@@ -149,8 +149,12 @@ class PipeAuthorityClient:
                 if _owner(kernel, advapi, handle) != self._server_sid:
                     raise HeadUnavailable("authority_wrong_owner")
                 _send(api, handle, operation, deadline)
-                if _receive(api, handle, 1, deadline) != b"H":
+                status = _receive(api, handle, 1, deadline)
+                if status == b"!":
+                    _send(api, handle, b"A", deadline)
                     raise HeadUnavailable("authority_operation_refused")
+                if status != b"H":
+                    raise HeadUnavailable("authority_invalid_response")
                 generation, revision, digest = _RESPONSE.unpack(_receive(api, handle, _RESPONSE.size, deadline))
                 head = Head(UUID(bytes=generation), revision, digest)
                 _send(api, handle, b"A", deadline)
@@ -206,7 +210,7 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
             operation = _receive(api, handle, 1, deadline)
             if _peer_sid(kernel, advapi, handle) != client_sid or operation != b"R":
                 _send(api, handle, b"!", deadline)
-                return "denied"
+                return "denied" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
             head = registry.read()
             if type(head) is not Head or head.generation != generation:
                 raise HeadUnavailable("authority_generation_mismatch")

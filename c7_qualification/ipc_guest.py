@@ -19,8 +19,8 @@ def require(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("enroll", "provision", "serve", "drop", "impostor",
-                                           "startup", "denied", "unavailable", "disconnected",
+    parser.add_argument("action", choices=("enroll", "provision", "advance", "serve", "drop", "impostor",
+                                           "startup", "startup-updated", "denied", "unavailable", "disconnected",
                                            "wrong-server", "substitute", "substituted"))
     parser.add_argument("parcel", type=Path)
     args = parser.parse_args()
@@ -29,7 +29,7 @@ def main():
             and re.fullmatch(r"AI1-C7-[a-f0-9]{32}", root.name))
     payload = Path(__file__).resolve().parents[1]
     system = Path(os.environ["SystemRoot"]) / "System32/config/systemprofile" / root.name
-    privileged = action in ("provision", "serve", "drop", "denied")
+    privileged = action in ("provision", "advance", "serve", "drop", "denied")
     require(payload.parent == (system if privileged else root))
     owner = os.environ["AI1_C7_OWNER"]
     require((owner == "S-1-5-18") == privileged)
@@ -67,9 +67,13 @@ def main():
         with closing(sqlite3.connect(":memory:")) as conn:
             MemoryLedger(conn, enabled=True, receipt_budget=8).initialize_empty(generation)
             initial = build_archive(conn, capsule=capsule, approved_key_pin=capsule.fingerprint)
+            following = build_archive(conn, capsule=capsule, approved_key_pin=capsule.fingerprint)
+        require(initial.fingerprint != following.fingerprint)
         namespace.publish(initial)
+        namespace.publish(following)
         with handoff.open("x", encoding="ascii") as file:
             json.dump({"owner": owner, "generation": str(generation), "digest": initial.fingerprint.hex(),
+                       "next_digest": following.fingerprint.hex(),
                        "pins": [(p.volume, p.native_id.hex()) for p in pins]}, file)
         return 42
 
@@ -90,6 +94,12 @@ def main():
     generation = UUID(data["generation"])
     client_sid = data["owner"]
     client = PipeAuthorityClient(pipe, server_sid="S-1-5-18", client_sid=client_sid)
+    if action == "advance":
+        initial = Head(generation, 0, bytes.fromhex(data["digest"]))
+        following = Head(generation, 1, bytes.fromhex(data["next_digest"]))
+        authority = registry()
+        require(authority.advance(initial, following) and not authority.advance(initial, following))
+        return 42
     if action in ("serve", "drop", "impostor"):
         actor = owner
         allowed = client_sid if privileged else "S-1-5-18"
@@ -121,9 +131,10 @@ def main():
         private_directory(archive_root, owner)
         return 42
 
-    if action == "startup":
+    if action in ("startup", "startup-updated"):
+        revised = action == "startup-updated"
         head = client.read()
-        require(head == Head(generation, 0, bytes.fromhex(data["digest"])))
+        require(head == Head(generation, int(revised), bytes.fromhex(data["next_digest" if revised else "digest"])))
         for operation, expected in ((lambda: client._exchange(b"W"), "authority_operation_refused"),
                                     (lambda: client.advance(head, head), "authority_read_only")):
             try:
@@ -150,7 +161,7 @@ def main():
     pins = tuple(FileIdentity(volume, bytes.fromhex(native)) for volume, native in data["pins"])
     factory = MemoryStorageFactory(session, PrivateArchiveDirectory(str(archive_root), owner_sid=owner,
                                                                    ancestors=pins), generation, 8)
-    configuration = scratch / "ipc-workspace.sqlite3"
+    configuration = scratch / (action + "-workspace.sqlite3")
     os.environ.update(PYTHON_DOTENV_DISABLED="1", AI1_API_KEY="", AI1_MODE="LOCAL_ONLY",
                       AI1_PROVIDER="ollama", AI1_DATABASE_PATH=str(configuration))
     from app import start
@@ -166,7 +177,7 @@ def main():
             app = target()
             try:
                 async with app.router.lifespan_context(app):
-                    require(action == "startup")
+                    require(action in ("startup", "startup-updated"))
                     require(app.state.memory_storage.read(generation) == ())
                     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                                  base_url="http://127.0.0.1:8000") as http:
@@ -183,6 +194,8 @@ def main():
     uvicorn.run = run
     require(start.main(["--workspace", "--database", str(configuration)],
                        memory_storage_factory=factory) == 0)
+    if action in ("unavailable", "disconnected", "substituted"):
+        require(not configuration.exists())
     return 42
 
 
