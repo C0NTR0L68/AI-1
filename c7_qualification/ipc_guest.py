@@ -4,6 +4,7 @@ import asyncio
 from contextlib import closing, contextmanager
 from hashlib import sha256
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -146,6 +147,7 @@ def main():
         require(registry().read() == Head(generation, 1, bytes.fromhex(data["next_digest"])))
         return 42
     if action in ("serve", "drop", "impostor"):
+        logging.basicConfig(level=logging.DEBUG)
         actor = owner
         allowed = client_sid if privileged else "S-1-5-18"
         service = registry() if action == "serve" else None

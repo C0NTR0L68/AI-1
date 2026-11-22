@@ -2,6 +2,7 @@
 from contextlib import closing, contextmanager
 import ctypes
 from ctypes import wintypes as W
+import logging
 import os
 import re
 import struct
@@ -18,6 +19,7 @@ _RESPONSE = struct.Struct(">16sQ32s")
 _CLIENT_ACCESS = 0x00120003  # SYNCHRONIZE | READ_CONTROL | FILE_READ_DATA | FILE_WRITE_DATA
 _OVERLAPPED = 0x40000000
 _IDENTIFY_ONLY = 0x00110000  # SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
+_LOG = logging.getLogger(__name__)
 
 
 def _configuration(name, server_sid, client_sid, timeout):
@@ -132,6 +134,8 @@ class PipeAuthorityClient:
         raise HeadUnavailable("authority_read_only")
 
     def _exchange(self, operation):
+        if type(operation) is not bytes or len(operation) != 1:
+            raise ValueError("One bounded authority operation required")
         api = _native()
         kernel, advapi = _windows_apis()
         deadline = monotonic() + self._timeout
@@ -181,7 +185,9 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
     convert.argtypes = [W.LPCWSTR, W.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
     convert.restype = W.BOOL
     descriptor = ctypes.c_void_p()
-    sddl = f"O:{server_sid}D:P(A;;GA;;;{server_sid})(A;;0x{_CLIENT_ACCESS:x};;;{client_sid})"
+    # The guest's enrolled high-integrity account may write protocol bytes
+    # without acquiring server rights. Low/medium tokens remain blocked.
+    sddl = f"O:{server_sid}D:P(A;;GA;;;{server_sid})(A;;0x{_CLIENT_ACCESS:x};;;{client_sid})S:(ML;;NW;;;HI)"
     if not convert(sddl, 1, ctypes.byref(descriptor), None):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
@@ -216,7 +222,8 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
                 raise HeadUnavailable("authority_generation_mismatch")
             _send(api, handle, b"H" + _RESPONSE.pack(head.generation.bytes, head.revision, head.digest), deadline)
             return "read" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
-        except (OSError, EOFError, HeadUnavailable):
+        except (OSError, EOFError, HeadUnavailable) as error:
+            _LOG.debug("Authority pipe closed: %s / %s", type(error).__name__, getattr(error, "winerror", None))
             return "disconnected"
         finally:
             kernel.DisconnectNamedPipe.argtypes = [W.HANDLE]
