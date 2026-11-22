@@ -10,6 +10,15 @@ from uuid import UUID
 
 
 _MAX_REVISION = 2**63 - 1
+_HEAD_DDL = (
+    "CREATE TABLE head_journal (revision INTEGER PRIMARY KEY CHECK(revision >= 0), "
+    "generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16), "
+    "digest BLOB NOT NULL UNIQUE CHECK(typeof(digest)='blob' AND length(digest)=32))"
+)
+_HEAD_SCHEMA = [
+    ("index", "sqlite_autoindex_head_journal_1", None),
+    ("table", "head_journal", _HEAD_DDL),
+]
 
 
 class HeadUnavailable(RuntimeError):
@@ -58,8 +67,11 @@ class DurableHeadRegistry:
 
     @staticmethod
     def _current(conn):
+        schema = conn.execute("SELECT type, name, sql FROM main.sqlite_schema ORDER BY type, name").fetchall()
+        if schema != _HEAD_SCHEMA:
+            raise HeadUnavailable("head_schema_unrecognized")
         row = conn.execute(
-            "SELECT generation, revision, digest FROM head_journal ORDER BY revision DESC LIMIT 1"
+            "SELECT generation, revision, digest FROM main.head_journal ORDER BY revision DESC LIMIT 1"
         ).fetchone()
         if row is None:
             raise HeadUnavailable("head_missing")
@@ -77,21 +89,18 @@ class DurableHeadRegistry:
         try:
             with closing(self._connection()) as conn, conn:
                 conn.execute("BEGIN IMMEDIATE")
-                if conn.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone() is not None:
+                if conn.execute("SELECT 1 FROM main.sqlite_schema LIMIT 1").fetchone() is not None:
                     raise HeadUnavailable("head_database_not_empty")
-                conn.execute(
-                    "CREATE TABLE head_journal (revision INTEGER PRIMARY KEY CHECK(revision >= 0), "
-                    "generation BLOB NOT NULL CHECK(typeof(generation)='blob' AND length(generation)=16), "
-                    "digest BLOB NOT NULL UNIQUE CHECK(typeof(digest)='blob' AND length(digest)=32))"
-                )
-                conn.execute("INSERT INTO head_journal VALUES (?, ?, ?)",
+                conn.execute(_HEAD_DDL)
+                conn.execute("INSERT INTO main.head_journal VALUES (?, ?, ?)",
                              (initial.revision, initial.generation.bytes, initial.digest))
         except sqlite3.Error as exc:
             raise HeadUnavailable("head_provision_unconfirmed") from exc
 
     def read(self):
         try:
-            with closing(self._connection()) as conn:
+            with closing(self._connection()) as conn, conn:
+                conn.execute("BEGIN")
                 return self._current(conn)
         except sqlite3.Error as exc:
             raise HeadUnavailable("head_read_unavailable") from exc
@@ -108,9 +117,9 @@ class DurableHeadRegistry:
                 conn.execute("BEGIN IMMEDIATE")
                 if self._current(conn) != expected:
                     return False
-                if conn.execute("SELECT 1 FROM head_journal WHERE digest=?", (candidate.digest,)).fetchone():
+                if conn.execute("SELECT 1 FROM main.head_journal WHERE digest=?", (candidate.digest,)).fetchone():
                     return False
-                conn.execute("INSERT INTO head_journal VALUES (?, ?, ?)",
+                conn.execute("INSERT INTO main.head_journal VALUES (?, ?, ?)",
                              (candidate.revision, candidate.generation.bytes, candidate.digest))
         except sqlite3.Error as exc:
             raise HeadUnavailable("head_advance_unconfirmed") from exc

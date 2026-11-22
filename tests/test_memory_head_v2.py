@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import sqlite3
 from threading import Barrier
 from uuid import UUID
@@ -115,3 +116,29 @@ def test_rejects_invalid_head_types():
                                           (GENERATION, 0, b"short")):
         with pytest.raises(ValueError):
             Head(generation, revision, digest)
+
+
+def test_rejects_unrecognized_table_with_valid_head_shaped_rows(tmp_path):
+    path = tmp_path / "substituted.sqlite"
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute("CREATE TABLE head_journal(revision, generation, digest)")
+        conn.execute("INSERT INTO head_journal VALUES (?, ?, ?)", (0, GENERATION.bytes, FIRST.digest))
+    authority = registry(path)
+    with pytest.raises(HeadUnavailable, match="head_schema_unrecognized"):
+        authority.read()
+    with pytest.raises(HeadUnavailable, match="head_schema_unrecognized"):
+        authority.advance(FIRST, SECOND)
+
+
+def test_temp_table_cannot_override_main_authority(tmp_path):
+    path = tmp_path / "authority.sqlite"
+    registry(path, provision=True).provision(FIRST)
+
+    def connect(*args, **kwargs):
+        conn = sqlite3.connect(*args, **kwargs)
+        conn.execute("CREATE TEMP TABLE head_journal(revision, generation, digest)")
+        conn.execute("INSERT INTO temp.head_journal VALUES (?, ?, ?)", (1, GENERATION.bytes, SECOND.digest))
+        conn.commit()
+        return conn
+
+    assert registry(path, factory=connect).read() == FIRST

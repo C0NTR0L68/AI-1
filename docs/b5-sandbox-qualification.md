@@ -29,3 +29,28 @@ execution-enabled admission scoped to the exact asyncio private operation and
 the exact frozen child programs and arguments, with immutable test and
 release pins and a per-case evidence channel. No change to the host or to
 any user archive or database was needed.
+
+## Narrow admission policy
+
+`b5_admission.py` defines a thread-scoped audit adapter. Its one-use child
+plan requires the exact pinned Python or Node executable in the archive's
+staging layout, the exact Windows command line, canonical test-owned paths,
+a fixed working directory and a new allowlisted environment. The original
+Python command strings are pinned by SHA-256. Recovery modes, synthetic
+database names and gate files have separate exact checks. Node admits only
+the original test script and flags. The fallback guard still handles every
+event outside that scope.
+
+For asyncio, the policy admits only the construction sequence for the
+pinned CPython 3.12 Windows IPv4 self-pipe: three owned stream sockets,
+one ephemeral loopback bind and one connect to the listener's actual port.
+It checks peer identities and listener closure after construction. It does
+not authorize DNS or general loopback connections.
+
+The five actual frozen child plan inputs matched without launching them.
+The policy tests use synthetic socket evidence and executable fixtures.
+Nothing installs the hook on the host or replaces the original B5 guard.
+Guest-only integration still needs a trusted self-pipe call site and cleanup
+on partial construction, checked runtime custody through CreateProcess,
+bounded process-tree custody and per-test evidence. The immutable full
+launcher remains disabled. Original Python/Node tests remain NOT_RUN.
