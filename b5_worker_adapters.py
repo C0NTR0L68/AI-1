@@ -72,6 +72,9 @@ def scoped_worker_adapters(audit, *, python, node, suite, scratch, system_root):
                 raise AdmissionDenied("CHILD_CWD")
             if Path(argv[0]) == node:
                 case = "node_ui"
+                # Windows shutil.which() commonly preserves the uppercase
+                # PATHEXT extension. Launch through the verified canonical path.
+                argv = (str(node), *argv[1:])
             elif len(argv) == 10:
                 case = "recovery"
             elif len(argv) == 7:

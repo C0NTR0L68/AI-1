@@ -67,5 +67,27 @@ $run = '$ErrorActionPreference=''Stop'';$r='''+$root+''';'+$strictSources+
     'if((Get-FileHash -LiteralPath $y).Hash -ne '''+$pySha+'''){exit 68};' +
     '& $y -I -S -B (Join-Path $r ''runner\b5_guest.py'') $p '''+$Mode+''';exit $LASTEXITCODE'
 $code = Invoke-Guest $run
-[pscustomobject]@{ mode = $Mode; exit = $code; sandbox = $SandboxId; transfer = $TransferId }
+$report = [ordered]@{ mode = $Mode; exit = $code; sandbox = $SandboxId; transfer = $TransferId }
+if ($Mode -eq "suite") {
+    $read = '$ErrorActionPreference=''Stop'';$p='''+$root+'\payload\result-suite.json'';' +
+        'if(!(Test-Path -LiteralPath $p -PathType Leaf)){exit 10001};' +
+        '$r=Get-Content -LiteralPath $p -Raw|ConvertFrom-Json;if($r.mode -ne ''suite''){exit 10002};'
+    $metrics = [ordered]@{
+        baseFunctions = 'exit [int]$r.base_functions'
+        collected = 'exit [int]$r.collected'
+        passedCalls = 'exit @($r.items|Where-Object{$_[1] -eq ''call'' -and $_[2] -eq ''passed''}).Count'
+        unsuccessfulPhases = 'exit @($r.items|Where-Object{$_[2] -ne ''passed''}).Count'
+        nodeTestPassed = 'exit [int](@($r.items|Where-Object{$_[0] -match ''test_ui.py::test_ui_reliability_handlers$'' -and $_[1] -eq ''call'' -and $_[2] -eq ''passed''}).Count -eq 1)'
+    }
+    foreach ($name in $metrics.Keys) {
+        $value = Invoke-Guest ($read + $metrics[$name])
+        $report[$name] = if ($value -lt 10000) { $value } else { $null }
+    }
+    if ($code -eq 0 -and ($report.baseFunctions -ne 195 -or $report.collected -le 0 -or
+        $report.passedCalls -ne $report.collected -or $report.unsuccessfulPhases -ne 0 -or $report.nodeTestPassed -ne 1)) {
+        $code = 74
+        $report.exit = $code
+    }
+}
+[pscustomobject] $report
 exit $code

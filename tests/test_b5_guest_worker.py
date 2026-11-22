@@ -83,7 +83,7 @@ def test_wrapper_preserves_child_admission_and_cleans_up(monkeypatch, tmp_path):
             socket.socketpair()
         with pytest.raises(AdmissionDenied, match="CHILD_POPEN_OPTIONS"):
             subprocess.Popen(args, shell=True)
-        subprocess.Popen(args)
+        subprocess.Popen((str(node.with_suffix(".EXE")), *args[1:]))
     assert subprocess.Popen is Child and socket.socketpair is original_pair
     assert evidence == ["spawned", "killed", "joined"]
 
