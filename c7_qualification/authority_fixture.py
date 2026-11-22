@@ -24,7 +24,8 @@ def run():
     verify(parcel.parent == Path(r"C:\Users\Public\Documents"))
     verify(re.fullmatch("AI1-C7-[0-9a-f]{32}", parcel.name))
     system_root = Path(os.environ["SystemRoot"]) / "System32/config/systemprofile" / parcel.name
-    sys.path.insert(0, str(parcel / "payload"))
+    # The privileged actor is staged independently in its protected directory.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from app.memory_head_v2 import DurableHeadRegistry, Head
 
     generation = UUID("afe2e32e-b202-4d63-b2ed-f5b88ebb4a21")
@@ -40,7 +41,8 @@ def run():
         with db.open("xb"):
             pass
         registry.provision(before)
-        (parcel / "old-head.synthetic").write_bytes(db.read_bytes())
+        with (parcel / "old-head.synthetic").open("xb") as output:
+            output.write(db.read_bytes())
         verify(registry.advance(before, after))
         connection = sqlite3.connect(db.as_uri() + "?mode=rw", uri=True)
         connection.execute("BEGIN IMMEDIATE")
