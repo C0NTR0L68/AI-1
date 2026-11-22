@@ -1,0 +1,1 @@
+<Configuration><vGPU>Disable</vGPU><Networking>Disable</Networking><ClipboardRedirection>Disable</ClipboardRedirection><PrinterRedirection>Disable</PrinterRedirection><AudioInput>Disable</AudioInput><VideoInput>Disable</VideoInput><ProtectedClient>Enable</ProtectedClient><MemoryInMB>2560</MemoryInMB></Configuration>
