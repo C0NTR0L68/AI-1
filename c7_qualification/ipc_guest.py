@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 from contextlib import closing, contextmanager
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,8 @@ def require(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("enroll", "provision", "advance", "serve", "drop", "impostor",
+    parser.add_argument("action", choices=("enroll", "provision", "advance", "journal", "ordinary-files",
+                                           "verify-files", "serve", "drop", "impostor",
                                            "startup", "startup-updated", "denied", "unavailable", "disconnected",
                                            "wrong-server", "substitute", "substituted"))
     parser.add_argument("parcel", type=Path)
@@ -29,7 +31,7 @@ def main():
             and re.fullmatch(r"AI1-C7-[a-f0-9]{32}", root.name))
     payload = Path(__file__).resolve().parents[1]
     system = Path(os.environ["SystemRoot"]) / "System32/config/systemprofile" / root.name
-    privileged = action in ("provision", "advance", "serve", "drop", "denied")
+    privileged = action in ("provision", "advance", "journal", "verify-files", "serve", "drop", "denied")
     require(payload.parent == (system if privileged else root))
     owner = os.environ["AI1_C7_OWNER"]
     require((owner == "S-1-5-18") == privileged)
@@ -88,9 +90,11 @@ def main():
         with database.open("xb"):
             pass
         registry().provision(initial)
+        with (scratch / "old-head.sqlite3").open("xb") as output:
+            output.write(database.read_bytes())
         return 42
 
-    data = json.loads((sealed_enrollment if privileged else handoff).read_bytes())
+    data = json.loads(sealed_enrollment.read_bytes())
     generation = UUID(data["generation"])
     client_sid = data["owner"]
     client = PipeAuthorityClient(pipe, server_sid="S-1-5-18", client_sid=client_sid)
@@ -99,6 +103,47 @@ def main():
         following = Head(generation, 1, bytes.fromhex(data["next_digest"]))
         authority = registry()
         require(authority.advance(initial, following) and not authority.advance(initial, following))
+        return 42
+    if action in ("journal", "ordinary-files", "verify-files"):
+        journal = database.with_name(database.name + "-journal")
+        proof = system / "ipc-file-proof.json"
+
+        def hashes():
+            return [sha256(path.read_bytes()).hexdigest() for path in (database, journal, sealed_enrollment)]
+
+        if action == "journal":
+            connection = sqlite3.connect(database.as_uri() + "?mode=rw", uri=True)
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("UPDATE main.head_journal SET digest=? WHERE revision=1", (bytes(32),))
+            require(journal.is_file() and journal.stat().st_size > 0)
+            with proof.open("x", encoding="ascii") as file:
+                json.dump(hashes(), file)
+            os._exit(42)
+        if action == "ordinary-files":
+            stale = scratch / "old-head.sqlite3"
+            require(stale.is_file())
+            for target in (database, journal, sealed_enrollment):
+                for attempt in (lambda: target.open("r+b").close(), target.unlink,
+                                lambda: target.rename(target.with_name("moved")),
+                                lambda: os.replace(stale, target)):
+                    try:
+                        attempt()
+                    except PermissionError:
+                        continue
+                    raise AssertionError("Ordinary client changed protected authority material")
+            try:
+                system.rename(system.with_name(system.name + "-substitute"))
+            except PermissionError:
+                pass
+            else:
+                raise AssertionError("Authority root replacement was allowed")
+            try:
+                sqlite3.connect(database.as_uri() + "?mode=rw", uri=True).close()
+            except sqlite3.OperationalError:
+                return 42
+            raise AssertionError("Ordinary client opened trusted SQLite")
+        require(json.loads(proof.read_bytes()) == hashes())
+        require(registry().read() == Head(generation, 1, bytes.fromhex(data["next_digest"])))
         return 42
     if action in ("serve", "drop", "impostor"):
         actor = owner
