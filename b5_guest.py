@@ -6,6 +6,7 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import sys
+from uuid import uuid4
 from zipfile import ZipFile
 
 
@@ -147,6 +148,7 @@ def _worker(root, mode):
             evidence["external_socket_denied"] = True
         if not all(evidence[k] for k in ("socketpair", "external_socket_denied")):
             raise AdmissionDenied("GUEST_SOCKET_CANARY")
+        policy.denials.clear()
         if mode == "preflight":
             evidence["pinned_python_child"] = pinned_child_canary()
             if not evidence["pinned_python_child"]:
@@ -156,10 +158,12 @@ def _worker(root, mode):
             _, restore = prepare_candidate(root / "frozen", policy)
             try:
                 args = pytest_plan(root, suite)
-                args[args.index("--basetemp") + 1] = str(temp / "pytest")
+                args[args.index("--basetemp") + 1] = str(temp / ("pytest-" + uuid4().hex))
                 code = pytest.main([*args, "--noconftest", "-p", "no:faulthandler"], plugins=[Results()])
             finally:
                 restore()
+    if code == 0 and policy.denials:
+        code = 75
     evidence["exit"] = int(code)
     evidence["denials"] = policy.denials
     (root / ("result-" + mode + ".json")).write_text(json.dumps(evidence), encoding="utf8")
@@ -195,6 +199,9 @@ def main():
         if (proof["exit"] != 0 or proof["mode"] != "preflight" or not proof["socketpair"]
                 or not proof["external_socket_denied"] or not proof["pinned_python_child"]):
             raise RuntimeError("Guest preflight not approved")
+    report = root / ("result-" + mode + ".json")
+    if report.exists():
+        report.rename(root / ("previous-" + mode + "-" + uuid4().hex + ".json"))
     code = run_worker(root / "runtime/python/python.exe", Path(__file__), root,
                       _clean_environment(root), deadline_ms=180_000, mode=mode)
     _verify_packages(root)
