@@ -20,6 +20,10 @@ _CLIENT_ACCESS = 0x0012008B  # FILE_GENERIC_READ | FILE_WRITE_DATA, excludes FIL
 _OVERLAPPED = 0x40000000
 _IDENTIFY_ONLY = 0x00110000  # SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
 _IO_INCOMPLETE = 996
+_IO_PENDING = 997
+_OPERATION_ABORTED = 995
+_PIPE_CONNECTED = 535
+_NOT_FOUND = 1168
 _LOG = logging.getLogger(__name__)
 
 
@@ -188,6 +192,67 @@ class _SecurityAttributes(ctypes.Structure):
     _fields_ = [("length", W.DWORD), ("descriptor", ctypes.c_void_p), ("inherit", W.BOOL)]
 
 
+class _Overlapped(ctypes.Structure):
+    _fields_ = [("internal", ctypes.c_size_t), ("internal_high", ctypes.c_size_t),
+                ("offset", W.DWORD), ("offset_high", W.DWORD), ("event", W.HANDLE)]
+
+
+def _accept(kernel, api, handle, deadline):
+    """Distinguish an already connected client from an outstanding accept."""
+    kernel.CreateEventW.argtypes = [ctypes.c_void_p, W.BOOL, W.BOOL, W.LPCWSTR]
+    kernel.CreateEventW.restype = W.HANDLE
+    kernel.ConnectNamedPipe.argtypes = [W.HANDLE, ctypes.POINTER(_Overlapped)]
+    kernel.ConnectNamedPipe.restype = W.BOOL
+    kernel.GetOverlappedResult.argtypes = [W.HANDLE, ctypes.POINTER(_Overlapped), ctypes.POINTER(W.DWORD), W.BOOL]
+    kernel.GetOverlappedResult.restype = W.BOOL
+    kernel.CancelIoEx.argtypes = [W.HANDLE, ctypes.POINTER(_Overlapped)]
+    kernel.CancelIoEx.restype = W.BOOL
+    event = kernel.CreateEventW(None, True, False, None)
+    if not event:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        operation = _Overlapped(event=event)
+        pointer = ctypes.byref(operation)
+        if kernel.ConnectNamedPipe(handle, pointer):
+            return True
+        error = ctypes.get_last_error()
+        if error == _PIPE_CONNECTED:
+            # No asynchronous operation was issued for this connection.
+            return True
+        if error != _IO_PENDING:
+            raise ctypes.WinError(error)
+        count = W.DWORD()
+        completed = False
+        try:
+            while monotonic() < deadline:
+                remaining = max(0, int((deadline - monotonic()) * 1000))
+                if api.WaitForSingleObject(event, remaining) != api.WAIT_OBJECT_0:
+                    break
+                if kernel.GetOverlappedResult(handle, pointer, ctypes.byref(count), False):
+                    completed = True
+                    return True
+                error = ctypes.get_last_error()
+                if error != _IO_INCOMPLETE:
+                    raise ctypes.WinError(error)
+                sleep(min(0.005, max(0, deadline - monotonic())))
+        finally:
+            # The event and OVERLAPPED must outlive any outstanding kernel I/O.
+            if not completed:
+                cancelled = kernel.CancelIoEx(handle, pointer)
+                cancel_error = 0 if cancelled else ctypes.get_last_error()
+                completed = bool(kernel.GetOverlappedResult(handle, pointer, ctypes.byref(count), True))
+                if not completed:
+                    error = ctypes.get_last_error()
+                    if error != _OPERATION_ABORTED:
+                        raise ctypes.WinError(error)
+                if cancel_error not in (0, _NOT_FOUND):
+                    raise ctypes.WinError(cancel_error)
+        # A successful connection may have won the race against cancellation.
+        return completed
+    finally:
+        api.CloseHandle(event)
+
+
 @contextmanager
 def authority_listener(name, *, server_sid, client_sid, registry, generation, timeout=2.0,
                        client_integrity=12288):
@@ -245,10 +310,8 @@ def _authenticated_listener(name, *, server_sid, client_sid, timeout, client_int
         if type(accept_timeout) not in (float, int) or not 0.25 <= accept_timeout <= 10:
             raise ValueError("Finite accept deadline required")
         try:
-            connection = api.ConnectNamedPipe(handle, overlapped=True)
-            _io_result(api, connection, monotonic() + accept_timeout)
-        except TimeoutError:
-            return "idle"
+            if not _accept(kernel, api, handle, monotonic() + accept_timeout):
+                return "idle"
         except OSError as error:
             if error.winerror != api.ERROR_NO_DATA:
                 raise
