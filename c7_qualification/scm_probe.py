@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+from threading import Thread
 from time import monotonic
 import traceback
 from uuid import UUID
@@ -166,8 +167,17 @@ def main():
     if phase == "serve":
         require(facts["sid"] == enrollment["authority"] and facts["sid"] in facts["restrictions"])
         require(registry_instance.read() == head(0))
+        class FixtureAuthority:
+            def read(self):
+                drop = STATE / "drop-next"
+                if drop.exists():
+                    drop.unlink()
+                    raise HeadUnavailable("synthetic_service_drop")
+                return registry_instance.read()
+
         with authority_listener(ROOT.name, server_sid=facts["sid"], client_sid=enrollment["client"],
-                                generation=GENERATION, registry=registry_instance) as serve:
+                                generation=GENERATION, registry=FixtureAuthority(),
+                                client_integrity=enrollment["integrity"]) as serve:
             (STATE / "ready").write_text(str(os.getpid()), encoding="ascii")
             deadline = monotonic() + 160
             while monotonic() < deadline and not (STATE / "stop").exists():
@@ -187,13 +197,21 @@ def main():
         require(json.loads((STATE / "before.json").read_bytes()) == hashes())
         require(registry_instance.read() == head(0))
         return 42
+    client = PipeAuthorityClient(ROOT.name, server_sid=enrollment["authority"],
+                                 client_sid=enrollment["client"])
+    if phase == "wrong-peer":
+        require(facts["sid"] == "S-1-5-18" and facts["sid"] != enrollment["client"])
+        try:
+            client.read()
+        except HeadUnavailable as error:
+            require(getattr(error.__cause__, "winerror", None) == 5)
+            return 42
+        raise AssertionError("Unenrolled Windows principal connected to the service")
     require(facts["sid"] == enrollment["client"] and facts["integrity"] == 8192
             and not facts["elevated"] and facts["sid"] != enrollment["authority"])
     if phase == "preflight":
         return 42
-    if phase == "ipc":
-        client = PipeAuthorityClient(ROOT.name, server_sid=enrollment["authority"],
-                                     client_sid=enrollment["client"])
+    if phase in ("ipc", "ipc-recovered"):
         try:
             require(client.read() == head(0))
         except HeadUnavailable as error:
@@ -201,6 +219,42 @@ def main():
             if getattr(cause, "winerror", None) == 5:
                 return 65
             raise
+        for operation, reason in ((lambda: client._exchange(b"W"), "authority_operation_refused"),
+                                  (lambda: client.advance(head(0), head(1)), "authority_read_only")):
+            try:
+                operation()
+            except HeadUnavailable as error:
+                require(str(error) == reason)
+            else:
+                raise AssertionError("Read-only authority admitted mutation")
+        return 42
+    if phase == "dropped":
+        try:
+            client.read()
+        except HeadUnavailable as error:
+            require(str(error) == "authority_pipe_unavailable"
+                    and getattr(error.__cause__, "winerror", None) in (109, 232, 233))
+            return 42
+        raise AssertionError("Incomplete reply was accepted as a head")
+    if phase == "counterfeit":
+        class UnexpectedRead:
+            def read(self):
+                raise AssertionError("Client sent a request to an untrusted endpoint")
+
+        with authority_listener(ROOT.name, server_sid=facts["sid"], client_sid=enrollment["authority"],
+                                registry=UnexpectedRead(), generation=GENERATION, client_integrity=8192) as serve:
+            outcomes = []
+            actor = Thread(target=lambda: outcomes.append(serve(3)))
+            actor.start()
+            try:
+                client.read()
+            except HeadUnavailable as error:
+                require(str(error) == "authority_wrong_owner")
+            else:
+                raise AssertionError("Client accepted a same-name pipe under the wrong owner")
+            finally:
+                actor.join(5)
+            require(not actor.is_alive() and outcomes == ["disconnected"])
         return 42
     require(phase == "denied")
     prove_scm_denials()
@@ -230,13 +284,13 @@ if __name__ == "__main__":
     ordinary = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     try:
         result = main()
-        if attempt in ("preflight", "ipc", "denied"):
+        if attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped"):
             (ordinary / (attempt + ".json")).write_text(
                 json.dumps({"pid": os.getpid(), "code": result, "token": token_facts()}), encoding="ascii")
         raise SystemExit(result)
     except Exception:
         if sys.argv[1:] == ["serve"] and os.name == "nt" and ROOT.parent == Path(r"C:\Program Files"):
             (STATE / "worker-failure.log").write_text(traceback.format_exc(limit=6), encoding="utf8")
-        elif attempt in ("preflight", "ipc", "denied") and os.name == "nt":
+        elif attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped") and os.name == "nt":
             (ordinary / (attempt + "-failure.log")).write_text(traceback.format_exc(limit=6), encoding="utf8")
         raise

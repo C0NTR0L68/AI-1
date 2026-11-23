@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][Guid] $TransferId,
-      [Parameter(Mandatory)][ValidatePattern('^[A-F0-9]{64}$')][string] $SourceManifestSha256)
+      [Parameter(Mandatory)][ValidatePattern('^[A-F0-9]{64}$')][string] $SourceManifestSha256,
+      [ValidateSet('high','medium')][string] $Profile='high')
 $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
@@ -103,7 +104,9 @@ try {
     Protect-Directory $state @($rule,@{sid=$authority;access='Modify'})
     Protect-Directory $archives @($rule,@{sid=$authority;access='ReadAndExecute'},@{sid=$client;access='ReadAndExecute'})
     [IO.File]::WriteAllText((Join-Path $archives 'archive.synthetic'),'synthetic archive canary')
-    @{authority=$authority.Value;client=$client.Value}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
+    $integrity=if($Profile -eq 'medium'){8192}else{12288}
+    @{authority=$authority.Value;client=$client.Value;integrity=$integrity}|
+        ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
     Protect-Directory $clientScratch @($rule,@{sid=$client;access='Modify'})
     Checkpoint roles 42
@@ -148,11 +151,26 @@ try {
         Checkpoint client-unqualified 97
         [IO.File]::WriteAllText((Join-Path $parcel 'client-unqualified.log'), $_.ToString())
     }
+    if ($Profile -eq 'medium') {
+        if (!$ordinaryAvailable -or $ordinaryCode -ne 42) { throw 'Medium profile client did not authenticate' }
+        & $py -I -S -B $probe wrong-peer *> (Join-Path $parcel 'wrong-peer.log')
+        if ($LASTEXITCODE -ne 42) { throw "Unexpected peer probe exit $LASTEXITCODE" }
+        Checkpoint wrong-peer 42
+        [IO.File]::WriteAllBytes((Join-Path $state 'drop-next'),[byte[]]@())
+        if ((Invoke-Ordinary dropped) -ne 42) { throw 'Interrupted reply was not confirmed' }
+        Checkpoint dropped 42
+        if ((Invoke-Ordinary ipc-recovered) -ne 42) { throw 'IPC did not recover after disconnect' }
+        Checkpoint ipc-recovered 42
+    }
     $phase = 'stop'
     [void](Invoke-Scm @('stop',$name))
     Wait-Status 'Stopped' 15
     if (Get-Process -Id $first -ErrorAction SilentlyContinue) { throw 'First worker still present' }
     Checkpoint stop 42
+    if ($Profile -eq 'medium') {
+        if ((Invoke-Ordinary counterfeit) -ne 42) { throw 'Counterfeit owner rejection was not confirmed' }
+        Checkpoint counterfeit 42
+    }
     $phase = 'restart'
     [void](Invoke-Scm @('start',$name))
     Wait-Status 'Running' 20

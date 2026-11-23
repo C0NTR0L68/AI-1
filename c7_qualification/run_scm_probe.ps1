@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][Guid] $SandboxId,
     [Parameter(Mandatory)][Guid] $TransferId,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Revision,
-    [Parameter(Mandatory)][string] $Evidence
+    [Parameter(Mandatory)][string] $Evidence,
+    [ValidateSet('high','medium')][string] $Profile='high'
 )
 $ErrorActionPreference='Stop'
 $parcel='C:\Users\Public\Documents\AI1-C7-'+$TransferId.ToString('N')
@@ -57,7 +58,7 @@ $setup=Read-PinnedSource 'c7_qualification/scm_guest.ps1'
 $setupHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($setup))
 $setup64=[Convert]::ToBase64String($setup)
 $command='$ErrorActionPreference=''Stop'';$bytes=[Convert]::FromBase64String('''+$setup64+''');'+
-    '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''''
+    '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''' -Profile '''+$Profile+''''
 $preflight=Read-PinnedSource 'c7_qualification/standard_user_preflight.ps1'
 $preflightHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($preflight))
 $preflight64=[Convert]::ToBase64String($preflight)
@@ -94,8 +95,9 @@ try {
 $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
     ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
+    profile=$Profile
 }
-foreach($phase in 'compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','stop','restart','crash','storage-denials','recovery','cleanup'){
+foreach($phase in 'compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup'){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
     $result[$phase]=if($code -ne 90){$code}else{$null}
 }

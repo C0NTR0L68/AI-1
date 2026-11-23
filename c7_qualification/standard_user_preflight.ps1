@@ -8,6 +8,14 @@ if (@([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()|Where
 $root=Join-Path 'C:\Users\Public\Documents' ('AI1-C7-'+$ParcelId.ToString('N'))
 if($Bridge){
     if(!(Test-Path -LiteralPath (Join-Path $root 'c7-binding.zip'))){exit 64}
+    $acl=[Security.AccessControl.DirectorySecurity]::new()
+    $acl.SetOwner($id.User)
+    $acl.SetAccessRuleProtection($true,$false)
+    foreach($sid in $id.User,[Security.Principal.SecurityIdentifier]::new('S-1-5-18')){
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            $sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
+    }
+    Set-Acl -LiteralPath $root -AclObject $acl
 } else {
     if(Test-Path -LiteralPath $root){exit 64}
     [void][IO.Directory]::CreateDirectory($root)
@@ -109,7 +117,7 @@ public static class Ai1StandardGuest
     public static int LaunchFixture(string user,string domain,IntPtr password,string sid,string parcel,string kind)
     {
         if(!System.Text.RegularExpressions.Regex.IsMatch(parcel,@"\AAI1-C7-[a-f0-9]{32}\z")
-            || (kind!="ipc" && kind!="denied" && kind!="counterfeit" && kind!="dropped" && kind!="wrong-peer")) return 78;
+            || (kind!="ipc" && kind!="denied" && kind!="counterfeit" && kind!="dropped" && kind!="ipc-recovered")) return 78;
         string root=System.IO.Path.Combine(@"C:\Program Files",parcel,"payload");
         string python=System.IO.Path.Combine(root,@"runtime\python\python.exe");
         string probe=System.IO.Path.Combine(root,@"c7_qualification\scm_probe.py");
@@ -170,7 +178,7 @@ try {
             $stop=Join-Path $root 'bridge-done'
             while(!(Test-Path -LiteralPath $stop)){
                 if([DateTime]::UtcNow -gt $deadline){throw 'Synthetic bridge deadline'}
-                foreach($phase in 'ipc','denied','counterfeit','dropped','wrong-peer'){
+                foreach($phase in 'ipc','denied','counterfeit','dropped','ipc-recovered'){
                     $request=Join-Path $root ($phase+'.request')
                     $reply=Join-Path $root ($phase+'.reply')
                     if((Test-Path -LiteralPath $request) -and !(Test-Path -LiteralPath $reply)){

@@ -174,20 +174,24 @@ class _SecurityAttributes(ctypes.Structure):
 
 
 @contextmanager
-def authority_listener(name, *, server_sid, client_sid, registry, generation, timeout=2.0):
+def authority_listener(name, *, server_sid, client_sid, registry, generation, timeout=2.0,
+                       client_integrity=12288):
     """Serve only reads of one generation on an OS-restricted pipe."""
     _configuration(name, server_sid, client_sid, timeout)
     if type(generation) is not UUID or generation.int == 0:
         raise ValueError("Explicit enrolled generation required")
+    if type(client_integrity) is not int or client_integrity not in (8192, 12288):
+        raise ValueError("Only a reviewed medium or high client integrity profile is supported")
     api = _native()
     kernel, advapi = _windows_apis()
     convert = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW
     convert.argtypes = [W.LPCWSTR, W.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
     convert.restype = W.BOOL
     descriptor = ctypes.c_void_p()
-    # The guest's enrolled high-integrity account may write protocol bytes
-    # without acquiring server rights. Low/medium tokens remain blocked.
-    sddl = f"O:{server_sid}D:P(A;;GA;;;{server_sid})(A;;0x{_CLIENT_ACCESS:x};;;{client_sid})S:(ML;;NW;;;HI)"
+    # No-write-up stays on in both profiles. The exact SID and narrow DACL
+    # are independent requirements. Medium requires an explicit enrollment.
+    label = "ME" if client_integrity == 8192 else "HI"
+    sddl = f"O:{server_sid}D:P(A;;GA;;;{server_sid})(A;;0x{_CLIENT_ACCESS:x};;;{client_sid})S:(ML;;NW;;;{label})"
     if not convert(sddl, 1, ctypes.byref(descriptor), None):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
