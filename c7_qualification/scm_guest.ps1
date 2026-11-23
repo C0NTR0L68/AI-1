@@ -120,37 +120,28 @@ try {
     Checkpoint start 42
     $phase = 'ipc'
     function Invoke-Ordinary([string] $Action) {
-        $argsText = '-I -S -B "'+$probe+'" '+$Action
-        $task = 'AI1C7GuestClient-' + $Action
-        if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Synthetic task already exists' }
-        $taskAction = New-ScheduledTaskAction -Execute $py -Argument $argsText -WorkingDirectory $clientScratch
-        $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\$user" -LogonType S4U -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
-        [void](Register-ScheduledTask -TaskName $task -Action $taskAction -Principal $principal -Settings $settings)
+        $info = [Diagnostics.ProcessStartInfo]::new($exe)
+        $info.Arguments = '--client ' + $Action
+        $info.WorkingDirectory = $clientScratch
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardInput = $true
+        $process = [Diagnostics.Process]::Start($info)
         try {
-            Start-ScheduledTask -TaskName $task
+            $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+            try { $process.StandardInput.WriteLine([Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); $process.StandardInput.Close() }
+            if (!$process.WaitForExit(19000)) { throw 'Native guest client supervisor did not exit' }
+            $result = $process.ExitCode
             $output = Join-Path $clientScratch ($Action+'.json')
-            $deadline = [DateTime]::UtcNow.AddSeconds(14)
-            do {
-                $current = Get-ScheduledTask -TaskName $task
-                if ($current.State -eq 'Ready' -and (Test-Path -LiteralPath $output)) { break }
-                if ([DateTime]::UtcNow -gt $deadline) {
-                    $result = (Get-ScheduledTaskInfo -TaskName $task).LastTaskResult
-                    throw "Ordinary canary receipt unavailable: $result"
-                }
-                Start-Sleep -Milliseconds 200
-            } while ($true)
-            $result = (Get-ScheduledTaskInfo -TaskName $task).LastTaskResult
+            if (!(Test-Path -LiteralPath $output)) { throw "Ordinary canary receipt unavailable: $result" }
             $receipt = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
             if ((Get-Process -Id $receipt.pid -ErrorAction SilentlyContinue) -or $receipt.code -ne $result -or
                 $receipt.token.integrity -ne 8192 -or $receipt.token.elevated -or $receipt.token.sid -ne $client.Value) {
                 throw 'Ordinary native identity or process receipt mismatch'
             }
             return $result
-        } finally {
-            if ((Get-ScheduledTask -TaskName $task).State -eq 'Running') { Stop-ScheduledTask -TaskName $task }
-            Unregister-ScheduledTask -TaskName $task -Confirm:$false
-        }
+        } finally { $process.Dispose() }
     }
     $ordinaryCode = Invoke-Ordinary ipc
     Checkpoint ipc $ordinaryCode
