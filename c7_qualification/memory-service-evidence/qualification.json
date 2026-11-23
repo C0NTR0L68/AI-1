@@ -1,0 +1,34 @@
+{
+  "tested_commit": "f1776fe787600d9cad682481e92ed8364e5ac03e",
+  "scm_semantic_read_write": "PASS",
+  "local_native_http": "PASS",
+  "checkpoints_per_run": [
+    "application-pins",
+    "compile",
+    "scm-registration",
+    "roles",
+    "write-start",
+    "write",
+    "wrong-peer",
+    "write-stop",
+    "resume",
+    "verify-write",
+    "write-final-stop",
+    "cleanup"
+  ],
+  "production_installation": "NOT_RUN",
+  "production_backup_restore": "NOT_RUN",
+  "production_memory_v2": "OFF",
+  "http_binding": "explicit synthetic workspace only",
+  "sha256": {
+    "isolation.json": "7241E62BD5C9479B73CF57E6BD9337072A2384584B465CE3FC5E32D872099D85",
+    "native-http-verified.json": "DB152797E550EAB0BB676CDABD3F0C53F3A397654163EEF98CF49577999D08C5",
+    "native-scm-qualified.json": "BB68867DF38BE73565F638C239E39219A2B6DE5E4442E33BC5516423619C51DF",
+    "native-scm-verified.json": "DCA7B80DFAD718D1F5D09C432CB19723ED9F8C5B48FC5EADF8E28B03B3D8EFB7",
+    "native-scm-write-final.json": "7B8DC4AA814809A3FEFE6E4E53A0916EB073E8EF1817FD7EDDE8B59BAA85787C",
+    "native-scm-write-retry.json": "DAD84AFD3BA30B003EB0E1B4C7976074034089E02BD5E4D50B8C4130DDE2D7EF",
+    "native-scm-write.json": "D306DD399B4C2385DF0E1B60D9E042C72299CDCB4080596F8832B6966D95C8D1",
+    "sandbox-cleanup.json": "B5A5A84EA6E1C2CB1155AE94FCFCDD0DE07A6EAF2EEE2F9956DA13E54CC218FC",
+    "transfer.log": "799140BA21B05D8B0D8FD0FCACBCFE1980901A894C876039D75BF1ACA5B07D9C"
+  }
+}
