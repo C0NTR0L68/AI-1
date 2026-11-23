@@ -1,0 +1,5 @@
+{
+  "phase": "acl-descriptor-inspection",
+  "exit_code": 42,
+  "probe_sha256": "1EE3A97428F0E580340EC573D2DF276B46A775891C7966D319F8D337E33376B3"
+}

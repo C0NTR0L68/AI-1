@@ -1,0 +1,25 @@
+{
+  "revision": "8512fc40313dcbae9ae5adc307b267b6e5f1dc47",
+  "guest_exit": 1,
+  "source_sha256": {
+    "scm_service.cs": "FAAD1B9D24D1D1E96582BE8B40B8E2BFF7FD28801DECC8E38696E61AC4854959",
+    "scm_probe.py": "B9F117908199E0A430CBA8F052901E4FACA914573CC9A8145B1CF7C547DA21BA",
+    "memory_authority_pipe.py": "C95237E3AABF717D43B6ECE71D47C787ADC8E9CB0E47CCEF760AACC7C9E70590"
+  },
+  "guest_script_sha256": "B09347A1A03E04577B9F36C7C81CD81787DA257EFD91F878CF5FB76CF1769A87",
+  "guest_source_manifest_sha256": "FFC0DB9E7172CD25507023F21640D2E14108D8131C7977269D0DF966A16728AE",
+  "compile": 42,
+  "scm-registration": 42,
+  "roles": 42,
+  "provision": 42,
+  "start": 42,
+  "ipc": 0,
+  "stop": null,
+  "restart": null,
+  "crash": null,
+  "storage-denials": null,
+  "recovery": null,
+  "cleanup": 42,
+  "failed_phase_code": 105,
+  "diagnostic_code": 99
+}
