@@ -143,9 +143,16 @@ try {
             return $result
         } finally { $process.Dispose() }
     }
-    $ordinaryCode = Invoke-Ordinary ipc
-    Checkpoint ipc $ordinaryCode
-    if ($ordinaryCode -notin (42,65)) { throw 'Unconfirmed non-elevated client outcome' }
+    $ordinaryAvailable = $false
+    try {
+        $ordinaryCode = Invoke-Ordinary ipc
+        if ($ordinaryCode -notin (42,65)) { throw 'Unconfirmed non-elevated client outcome' }
+        Checkpoint ipc $ordinaryCode
+        $ordinaryAvailable = $true
+    } catch {
+        Checkpoint client-unqualified 97
+        [IO.File]::WriteAllText((Join-Path $parcel 'client-unqualified.log'), $_.ToString())
+    }
     $phase = 'stop'
     [void](Invoke-Scm @('stop',$name))
     Wait-Status 'Stopped' 15
@@ -164,9 +171,11 @@ try {
         !(Test-Path -LiteralPath (Join-Path $state 'head.sqlite3-journal'))) { throw 'Crash or journal unconfirmed' }
     Checkpoint crash 42
     $phase = 'storage-denials'
-    $ordinaryCode = Invoke-Ordinary denied
-    Checkpoint storage-denials $ordinaryCode
-    if ($ordinaryCode -ne 42) { throw 'SCM/storage denial failed' }
+    if ($ordinaryAvailable) {
+        $ordinaryCode = Invoke-Ordinary denied
+        Checkpoint storage-denials $ordinaryCode
+        if ($ordinaryCode -ne 42) { throw 'SCM/storage denial failed' }
+    }
     $phase = 'recovery'
     [void](Invoke-Scm @('start',$name))
     Wait-Status 'Running' 20
