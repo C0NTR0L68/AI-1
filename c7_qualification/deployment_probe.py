@@ -74,7 +74,7 @@ def run_child(phase, expected):
 
 class DeploymentChecks(unittest.TestCase):
     def test_offline_gate_denies_unknown_mismatch_and_shared_identity(self):
-        import deployment_gate as gate
+        from c7_qualification import deployment_gate as gate
 
         plan = {"authority_sid": "S-1-5-80-1-2-3-4-5", "client_sid": "S-1-5-21-1-2-3-1001",
                 "client_integrity": 12288, "runtime_sha256": "a"*64, "enrollment_sha256": "b"*64,
