@@ -1,0 +1,43 @@
+{
+  "tested_commit": "ed6bfc25893c54d8a5bdc8a331b645e40ea31648",
+  "checkpoints": [
+    "application-pins",
+    "compile",
+    "scm-registration",
+    "roles",
+    "write-start",
+    "write",
+    "wrong-peer",
+    "write-stop",
+    "resume",
+    "verify-write",
+    "write-final-stop",
+    "cleanup",
+    "backup",
+    "restore-same-profile",
+    "profile-location",
+    "profile-backup",
+    "profile-missing",
+    "profile-copy-back",
+    "restore-from-profile-copy"
+  ],
+  "native_local_launcher": "PASS",
+  "default_off": "PASS",
+  "backup_and_dpapi_profile_file_recovery": "PASS_SAME_GUEST_INSTALLATION_AND_SERVICE_SID",
+  "whole_windows_loss_recovery": "NOT_RUN",
+  "production_scm_binary": "NOT_BUILT",
+  "host_enrollment": "NOT_RUN",
+  "memory_v2": "OFF",
+  "production": "NO-GO",
+  "release_manifest_sha256": "73B98F24CD706BFD621E3D1045CEDAB59236E8194570B00E22227DF22F0B905A",
+  "sha256": {
+    "isolation.json": "7241E62BD5C9479B73CF57E6BD9337072A2384584B465CE3FC5E32D872099D85",
+    "profile-failed-rollback.json": "7241E62BD5C9479B73CF57E6BD9337072A2384584B465CE3FC5E32D872099D85",
+    "release-native.json": "0B87B23848B94D81A33777705601416B700670B7662212384406C6795E132DF6",
+    "release-profile.json": "F6CE5EF3C19EA4EB3C32AF8A1A61D933E1552A93AA047698F25FCD569011C544",
+    "release-qualified.json": "D712E3CB7BEDACD865B979E0063DA0AB462793B25A0146D5FE1711F6816DDEF0",
+    "release-restore.json": "DCA0C621350C984FC9B4CE36E131CAE10620D82FD7EA5654482EFAD70FC56AC7",
+    "sandbox-cleanup.json": "B5A5A84EA6E1C2CB1155AE94FCFCDD0DE07A6EAF2EEE2F9956DA13E54CC218FC",
+    "transfer.log": "83A6094B8A10F38A3F334F4865473083B602404DABD94C3FDDF0540C0A49D94C"
+  }
+}
