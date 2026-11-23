@@ -1,5 +1,6 @@
 """Explicit guarded ASGI adapter, installed only by the synthetic workspace."""
 from uuid import UUID
+from dataclasses import dataclass, field
 
 from starlette.concurrency import run_in_threadpool
 
@@ -16,7 +17,15 @@ _HEAD = "/api/memory/head"
 _COMMAND = "/api/memory/command"
 _DELETE = "/api/memory/notes"
 _STATUS = "/api/memory/status"
-_METHODS = {_PAIR: "POST", _HEAD: "GET", _COMMAND: "POST", _DELETE: "DELETE", _STATUS: "POST"}
+_LOGOUT = "/api/memory/logout"
+_METHODS = {_PAIR: "POST", _HEAD: "GET", _COMMAND: "POST", _DELETE: "DELETE", _STATUS: "POST", _LOGOUT: "POST"}
+
+
+@dataclass(frozen=True)
+class MemoryServiceBinding:
+    dispatch: object = field(repr=False)
+    guard: MemoryAccessGuard = field(repr=False)
+    verify: object = field(repr=False)
 
 
 def _mutation(payload, delete):
@@ -33,7 +42,7 @@ def _mutation(payload, delete):
             "note": payload.get("note"), "revision": payload.get("note_revision")}
 
 
-def semantic_test_binding(guard, reader, writer):
+def _semantic_dispatch(guard, reader, writer):
     if type(guard) is not MemoryAccessGuard or any(type(client) is not SemanticPipeClient for client in (reader, writer)):
         raise ValueError("Explicit synthetic service binding required")
 
@@ -81,6 +90,11 @@ def semantic_test_binding(guard, reader, writer):
                 raise _InvalidBody()
             tokens = guard.pair(method, headers, payload["secret"])
             return _response({"bearer": tokens.bearer_token, "csrf": tokens.csrf_token})
+        if path == _LOGOUT:
+            if payload:
+                raise _InvalidBody()
+            guard.logout(headers)
+            return _response({"revoked": True})
         if path == _COMMAND:
             intent = parse_memory_command(payload.get("command"), enabled=True)
             if intent is not None and intent.action is MemoryAction.LIST and payload.keys() == {"command"}:
@@ -102,4 +116,13 @@ def semantic_test_binding(guard, reader, writer):
             return _error(409, "operation_refused")
         return _response({"receipt": saved})
 
-    return MemoryTestBinding(dispatch, guard)
+    return dispatch
+
+
+def semantic_test_binding(guard, reader, writer):
+    return MemoryTestBinding(_semantic_dispatch(guard, reader, writer), guard)
+
+
+def semantic_service_binding(guard, reader, writer):
+    dispatch = _semantic_dispatch(guard, reader, writer)
+    return MemoryServiceBinding(dispatch, guard, lambda: unpack_head(reader.request({"op": "head"})))

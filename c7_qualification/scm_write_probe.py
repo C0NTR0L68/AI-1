@@ -32,11 +32,18 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
     write_pipe = "AI1-C7-" + uuid5(UUID(name[7:]), "semantic-write").hex
     client_sid = enrollment["client"]
     use_http = enrollment.get("http_fixture") is True
+    if use_http:
+        from app.memory_launch_v2 import READ_PIPE, WRITE_PIPE
+        name, write_pipe = READ_PIPE, WRITE_PIPE
     reader = SemanticPipeClient(name, server_sid=sid, client_sid=client_sid, timeout=8.0)
     writer = SemanticPipeClient(write_pipe, server_sid=sid, client_sid=client_sid, timeout=8.0)
     if phase == "serve":
         require(facts["sid"] == sid and sid in facts["restrictions"])
-        return serve(state, sid, client_sid, name, write_pipe, generation)
+        return serve(state, sid, client_sid, name, write_pipe, generation, recovery=use_http)
+    if phase == "snapshot":
+        require(use_http and facts["sid"] == "S-1-5-18")
+        from c7_qualification.scm_recovery_probe import snapshot
+        return snapshot(state)
     if phase == "wrong-peer":
         require(facts["sid"] == "S-1-5-18" and facts["sid"] != client_sid)
         for endpoint in (reader, writer):
@@ -77,6 +84,7 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         refuse(writer, {**request, "archive": "client-supplied bytes are never accepted"})
         if use_http:
             from c7_qualification.scm_http_probe import local_action
+            require(local_action(scratch, reader, writer, "off") is None)
             committed = local_action(scratch, reader, writer, "write", request)
         else:
             committed = writer.request(request)
@@ -134,7 +142,7 @@ def refuse(pipe, request):
     raise AssertionError("Forbidden mutation was accepted")
 
 
-def serve(state, sid, client_sid, name, write_pipe, generation):
+def serve(state, sid, client_sid, name, write_pipe, generation, *, recovery):
     directory = state / "archives"
     database = state / "head.sqlite3"
     manifest = state / "archive-pins.json"
@@ -174,6 +182,13 @@ def serve(state, sid, client_sid, name, write_pipe, generation):
     live = writer.head()
     require(live.generation == generation)
     reducer.read(live)  # Reopen with the same service CurrentUser profile before accepting any client.
+    if recovery:
+        from c7_qualification.scm_recovery_probe import profile_probe, verify_restored
+        if fresh:
+            profile_probe(state, sid)
+        if live.revision == 1 and (state / "snapshot-head.json").exists():
+            verify_restored(state, live, budget=8)
+            (state / "verified-restore").write_bytes(b"ok")
     semantic = SemanticMemory(writer, reducer)
 
     def handler(request, *, writable):

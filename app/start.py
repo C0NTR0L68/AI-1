@@ -46,9 +46,12 @@ def main(argv=None, *, memory_storage_factory=None) -> int:
     parser.add_argument("--database", required=True, help="Absolute .sqlite3 history path")
     parser.add_argument("--model", default="qwen2.5:1.5b", help="Already installed Ollama model")
     parser.add_argument("--workspace", action="store_true", help="Opt in to a separate NEW workspace schema; never imports legacy history")
+    parser.add_argument("--memory-v2", action="store_true", help="Opt in to the separately installed Windows authority")
     args = parser.parse_args(argv)
     if memory_storage_factory is not None and not args.workspace:
         parser.error("Trusted storage requires a local workspace")
+    if args.memory_v2 and (not args.workspace or memory_storage_factory is not None):
+        parser.error("Memory V2 requires the explicit LOCAL workspace launcher")
     try:
         environment = local_configuration(args.database, args.model)
         path = Path(environment["AI1_DATABASE_PATH"])
@@ -60,12 +63,21 @@ def main(argv=None, *, memory_storage_factory=None) -> int:
     except ValueError as error:
         parser.error(str(error))
     os.environ.update(environment)  # This process only; no Windows/user settings.
+    binding = None
+    if args.memory_v2:
+        from app.memory_launch_v2 import make_binding
+        try:
+            binding = make_binding()
+        except ValueError as error:
+            parser.error(str(error))
     import uvicorn
     target = "app.main:create_app"
     if args.workspace:
         from functools import partial
         from app.main import create_app
-        target = partial(create_app, workspace_path=str(path), memory_storage_factory=memory_storage_factory)
+        options = {"memory_service_binding": binding} if binding is not None else {}
+        target = partial(create_app, workspace_path=str(path), memory_storage_factory=memory_storage_factory,
+                         **options)
     uvicorn.run(target, factory=True, host="127.0.0.1", port=8000,
                 workers=1, reload=False, proxy_headers=False)
     return 0

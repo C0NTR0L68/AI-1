@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
 $root = Join-Path 'C:\Program Files' $parcelName
-$name = 'AI1C7GuestAuthority'
+$name = 'AI1MemoryAuthority'
 $user = 'AI1C7OrdinaryProbe'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if ($identity.User.Value -ne 'S-1-5-18' -or !(Test-Path -LiteralPath $parcel) -or
@@ -78,13 +78,15 @@ try {
     if ($EndToEnd) { $files += 'scm_dpapi_e2e.py' }
     if ($WriteProfile) {
         $files += @('scm_write_probe.py','memory_service_pipe.py','memory_write_v2.py',
-                    'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py')
+                    'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py',
+                    'memory_launch_v2.py','main.py','start.py')
     }
-    if ($WriteHttp) { $files += 'scm_http_probe.py' }
+    if ($WriteHttp) { $files += @('scm_http_probe.py','scm_recovery_probe.py') }
     foreach ($file in $files) {
         $input = Join-Path $parcel $file
         $isApp=$file -in ('memory_authority_pipe.py','memory_service_pipe.py','memory_write_v2.py',
-                        'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py')
+                        'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py',
+                        'memory_launch_v2.py','main.py','start.py')
         $target = Join-Path $payload $(if($isApp){'app\'+$file}else{'c7_qualification\'+$file})
         [IO.File]::Copy($input,$target,($WriteProfile -and $isApp))
         if ((Get-FileHash -LiteralPath $target).Hash -ne $pins.$file) { exit 64 }
@@ -195,11 +197,34 @@ try {
         Wait-Status 'Stopped' 15
         if(Get-Process -Id $first -ErrorAction SilentlyContinue){throw 'First write worker still present'}
         Checkpoint write-stop 42
+        if ($WriteHttp) {
+            $phase='backup'
+            & $py -I -S -B $probe snapshot *> (Join-Path $parcel 'snapshot.log')
+            if($LASTEXITCODE -ne 42){throw 'Offline archive snapshot failed'}
+            Checkpoint backup 42
+            $profile = Get-Content -LiteralPath (Join-Path $state 'profile-location.json') -Raw|ConvertFrom-Json
+            $dedicated=@(
+              "C:\Windows\ServiceProfiles\$name\AppData\Roaming\Microsoft\Protect\$($authority.Value)",
+              "C:\Users\$name\AppData\Roaming\Microsoft\Protect\$($authority.Value)"
+            )
+            if($profile.sid -eq $authority.Value -and $profile.resolve_hresult -eq 0 -and
+               $profile.key_root -in $dedicated -and (Test-Path -LiteralPath $profile.key_root -PathType Container)) {
+                Checkpoint profile-location 42
+            } else {
+                Checkpoint profile-location 65
+            }
+        }
         $phase = 'resume'
         [void](Invoke-Scm @('start',$name))
         Wait-Status 'Running' 20
         $second=[int][IO.File]::ReadAllText((Join-Path $state 'ready'))
         if($second -eq $first){throw 'No new service worker observed'}
+        if ($WriteHttp) {
+            if([IO.File]::ReadAllText((Join-Path $state 'verified-restore')) -cne 'ok'){
+                throw 'Restored candidate was not validated by the new service process'
+            }
+            Checkpoint restore-same-profile 42
+        }
         [IO.File]::WriteAllBytes((Join-Path $state 'lose-write-ack'),[byte[]]@())
         if((Invoke-Ordinary resume) -ne 42){throw 'Restarted read or interrupted delete not confirmed'}
         Wait-Status 'Stopped' 15

@@ -99,7 +99,7 @@ def prove_scm_denials():
     require(manager)
     try:
         for right in (2, 0x10, 0x20, 0x10000, 0x40000, 0x80000):
-            handle = open_service(manager, "AI1C7GuestAuthority", right)
+            handle = open_service(manager, "AI1MemoryAuthority", right)
             if handle:
                 close(handle)
                 raise AssertionError("Ordinary client acquired SCM mutation rights")
@@ -121,7 +121,7 @@ def register_fixture():
     if not manager:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        name = "AI1C7GuestAuthority"
+        name = "AI1MemoryAuthority"
         service = create(manager, name, name, 0x10002, 16, 3, 1, f'"{ROOT / "Authority.exe"}"',
                          None, None, None, "NT SERVICE\\" + name, None)
         if not service:

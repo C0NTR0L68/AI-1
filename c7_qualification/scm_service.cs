@@ -14,7 +14,7 @@ internal sealed class AuthorityFixtureService : ServiceBase
 
     public AuthorityFixtureService()
     {
-        ServiceName = "AI1C7GuestAuthority";
+        ServiceName = "AI1MemoryAuthority";
         CanStop = true;
         AutoLog = false;
     }

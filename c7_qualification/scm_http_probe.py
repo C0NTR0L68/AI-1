@@ -1,7 +1,9 @@
 """Real loopback integration for a synthetic, already qualified SCM service."""
 from http.client import HTTPConnection
+from io import StringIO
 import json
 import os
+import sys
 from threading import Thread
 from time import monotonic, sleep
 
@@ -10,18 +12,13 @@ def local_action(scratch, reader, writer, phase, request=None):
     from app import start
     database = str(scratch / "local-workspace.sqlite3")
     os.environ.update(start.local_configuration(database, "synthetic-never-called"))
-    from app import main
-    from app.memory_security import MemoryAccessGuard
-    from app.memory_service_http import semantic_test_binding
     import uvicorn
 
-    class NeverProvider:
-        async def generate(self, *args, **kwargs):
-            raise AssertionError("Memory commands cannot call a provider")
+    class FixtureConsole(StringIO):
+        def isatty(self):
+            return True
 
-    guard = MemoryAccessGuard(enabled=True)
-    secret = guard.issue_pairing_challenge().secret
-    binding = semantic_test_binding(guard, reader, writer)
+    console = FixtureConsole()
     result = []
 
     def exchange(method, path, body=None, *, session=None, host="127.0.0.1:8000"):
@@ -59,6 +56,14 @@ def local_action(scratch, reader, writer, phase, request=None):
             sockets = [sock.getsockname() for listener in server.servers for sock in listener.sockets]
             assert sockets == [("127.0.0.1", 8000)]
             prefix = "/api/memory"
+            if phase == "off":
+                assert exchange("GET", prefix + "/head")[0] == 404
+                assert "Memory V2 pairing" not in console.getvalue()
+                result.append(None)
+                return
+            lines = [line for line in console.getvalue().splitlines() if line.startswith("Memory V2 pairing (120 sec): ")]
+            assert len(lines) == 1
+            secret = lines[0].split(": ", 1)[1]
             assert exchange("GET", prefix + "/head")[0] == 403
             assert exchange("GET", prefix + "/head", host="invalid.example")[0] in (400, 403)
             status, session = exchange("POST", prefix + "/pair", {"secret": secret})
@@ -92,14 +97,12 @@ def local_action(scratch, reader, writer, phase, request=None):
             thread.join(7)
             assert not thread.is_alive() and all(not listener.is_serving() for listener in server.servers)
 
-    original_create, original_run = main.create_app, uvicorn.run
-
-    def create(**kwargs):
-        return original_create(**kwargs, provider=NeverProvider(), memory_test_binding=binding)
-
-    main.create_app, uvicorn.run = create, run
+    original_run, stdin, stderr = uvicorn.run, sys.stdin, sys.stderr
+    uvicorn.run, sys.stdin, sys.stderr = run, console, console
     try:
-        assert start.main(["--workspace", "--database", database]) == 0
+        flags = [] if phase == "off" else ["--memory-v2"]
+        assert start.main(["--workspace", "--database", database, *flags]) == 0
     finally:
-        main.create_app, uvicorn.run = original_create, original_run
+        uvicorn.run, sys.stdin, sys.stderr = original_run, stdin, stderr
+        console.close()
     return result[0]

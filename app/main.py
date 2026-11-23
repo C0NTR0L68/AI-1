@@ -165,7 +165,7 @@ class RuntimeGuardMiddleware:
 
 def create_app(store: ChatStore | None = None, provider=None, *, local_port: int = 8000,
                workspace_path: str | None = None, memory_test_binding=None,
-               memory_storage_factory=None) -> FastAPI:
+               memory_storage_factory=None, memory_service_binding=None) -> FastAPI:
     # An injected test listener gets its own exact Host/Origin boundary; the
     # production address remains 127.0.0.1:8000 with no wildcard allowance.
     local_policy = LocalRequestPolicy(port=local_port, native_writes="marker")
@@ -179,6 +179,12 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
         if (type(memory_storage_factory) is not MemoryStorageFactory or workspace_path is None
                 or memory_test_binding is not None or local_port != 8000):
             raise ValueError("Trusted storage requires a local workspace and no test memory binding")
+    if memory_service_binding is not None:
+        from app.memory_http_v2 import MemoryTestMiddleware
+        from app.memory_service_http import MemoryServiceBinding
+        if (type(memory_service_binding) is not MemoryServiceBinding or workspace_path is None
+                or memory_storage_factory is not None or memory_test_binding is not None or local_port != 8000):
+            raise ValueError("Memory service requires the canonical LOCAL workspace")
     if workspace_path is not None and (store is not None or not Path(workspace_path).is_absolute()):
         raise ValueError("Workspace requires an explicit absolute path and its own store")
     if workspace_path is not None:
@@ -199,6 +205,8 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
         ready = False
         storage = ExitStack()
         try:
+            if memory_service_binding is not None:
+                memory_service_binding.verify()
             if memory_storage_factory is not None:
                 application.state.memory_storage = storage.enter_context(memory_storage_factory.open())
             if application.state.store is None:
@@ -224,6 +232,8 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
             try:
                 if memory_test_binding is not None:
                     memory_test_binding.guard.disable()
+                if memory_service_binding is not None:
+                    memory_service_binding.guard.disable()
             finally:
                 application.state.memory_storage = None
                 try:
@@ -251,6 +261,8 @@ def create_app(store: ChatStore | None = None, provider=None, *, local_port: int
         install_workspace_routes(application, _provider_http_error)
     if memory_test_binding is not None:
         application.add_middleware(MemoryTestMiddleware, binding=memory_test_binding)
+    if memory_service_binding is not None:
+        application.add_middleware(MemoryTestMiddleware, binding=memory_service_binding)
     application.add_middleware(RuntimeGuardMiddleware, runtime=runtime)
     # Starlette runs the last-added user middleware first, before runtime/body.
     application.add_middleware(
