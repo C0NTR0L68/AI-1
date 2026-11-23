@@ -21,6 +21,12 @@ separately reviewed export/reseal procedure from that profile. Do not switch
 to machine-scoped DPAPI or infer write authority from a desktop SID or an
 HTTP session. Any old read-only registry is refused by the new schema.
 
+The current archive ACL validator admits account SIDs in the S-1-5-21
+family. It refuses a virtual S-1-5-80 service SID as archive owner. Qualify a
+dedicated local service account and its actual restricted token, or review
+and qualify explicit virtual service SID support before using that identity.
+Make the identity decision before installing or modifying anything on the host.
+
 ## Production checklist, pending approval
 
 1. Approve the policy for the service-owned profile and read/write roles in a

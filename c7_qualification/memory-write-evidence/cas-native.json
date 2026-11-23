@@ -1,0 +1,14 @@
+{
+  "revision": "fa6abdcbad7474b1beb80ca146f67cce20aa91de",
+  "archive_sha256": "9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500",
+  "manifest_sha256": "9E3363DAA02196EF011ED68BD8335838ED64992AA3854A625A2972D0FDC52E15",
+  "source_sha256": {
+    "app/memory_write_v2.py": "DC4AE479625DE0F5239F9A70CB4A870F686163E5879A8ECF27CA8AA8AEB3AEA8",
+    "c7_qualification/cas_write_guest.py": "4F41A36F93759EC0C8BBE359C161214D1054D12D822EA031345EB54CA86FA5BA"
+  },
+  "staging": 42,
+  "profile": "isolated guest interactive DPAPI owner",
+  "write": 42,
+  "restart": 43,
+  "reconcile": 42
+}
