@@ -120,11 +120,26 @@ try {
     $first = [int][IO.File]::ReadAllText((Join-Path $state 'ready'))
     Checkpoint start 42
     $phase = 'ipc'
-    $common = '-I -S -B "'+$probe+'" '
-    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'ipc') -WorkingDirectory $clientScratch -Credential $credential -WindowStyle Hidden -PassThru
-    if (!$ordinaryProcess.WaitForExit(10000)) { $ordinaryProcess.Kill(); throw 'Client IPC deadline' }
-    Checkpoint ipc $ordinaryProcess.ExitCode
-    if ($ordinaryProcess.ExitCode -notin (42,65)) { throw 'Unconfirmed non-elevated client outcome' }
+    function Invoke-Ordinary([string] $Action) {
+        $argsText = '-I -S -B "'+$probe+'" '+$Action
+        $process = Start-Process -FilePath $py -ArgumentList $argsText -WorkingDirectory $clientScratch -Credential $credential -WindowStyle Hidden -PassThru
+        try {
+            [void]$process.Handle
+            if (!$process.WaitForExit(10000)) { $process.Kill(); throw 'Ordinary canary deadline' }
+            if ($null -eq $process.ExitCode) { throw 'Ordinary canary exit unavailable' }
+            $output = Join-Path $clientScratch ($Action+'.json')
+            if (!(Test-Path -LiteralPath $output)) { throw "Ordinary canary receipt unavailable: $($process.ExitCode)" }
+            $receipt = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+            if ($receipt.pid -ne $process.Id -or $receipt.code -ne $process.ExitCode -or
+                $receipt.token.integrity -ne 8192 -or $receipt.token.elevated -or $receipt.token.sid -ne $client.Value) {
+                throw 'Ordinary native identity or process receipt mismatch'
+            }
+            return $process.ExitCode
+        } finally { $process.Dispose() }
+    }
+    $ordinaryCode = Invoke-Ordinary ipc
+    Checkpoint ipc $ordinaryCode
+    if ($ordinaryCode -notin (42,65)) { throw 'Unconfirmed non-elevated client outcome' }
     $phase = 'stop'
     [void](Invoke-Scm @('stop',$name))
     Wait-Status 'Stopped' 15
@@ -143,10 +158,9 @@ try {
         !(Test-Path -LiteralPath (Join-Path $state 'head.sqlite3-journal'))) { throw 'Crash or journal unconfirmed' }
     Checkpoint crash 42
     $phase = 'storage-denials'
-    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'denied') -WorkingDirectory $clientScratch -Credential $credential -WindowStyle Hidden -PassThru
-    if (!$ordinaryProcess.WaitForExit(10000)) { $ordinaryProcess.Kill(); throw 'Storage canary deadline' }
-    Checkpoint storage-denials $ordinaryProcess.ExitCode
-    if ($ordinaryProcess.ExitCode -ne 42) { throw 'SCM/storage denial failed' }
+    $ordinaryCode = Invoke-Ordinary denied
+    Checkpoint storage-denials $ordinaryCode
+    if ($ordinaryCode -ne 42) { throw 'SCM/storage denial failed' }
     $phase = 'recovery'
     [void](Invoke-Scm @('start',$name))
     Wait-Status 'Running' 20

@@ -224,9 +224,17 @@ def main():
 
 
 if __name__ == "__main__":
+    attempt = sys.argv[1] if len(sys.argv) == 2 else ""
+    ordinary = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     try:
-        raise SystemExit(main())
+        result = main()
+        if attempt in ("ipc", "denied"):
+            (ordinary / (attempt + ".json")).write_text(
+                json.dumps({"pid": os.getpid(), "code": result, "token": token_facts()}), encoding="ascii")
+        raise SystemExit(result)
     except Exception:
         if sys.argv[1:] == ["serve"] and os.name == "nt" and ROOT.parent == Path(r"C:\Program Files"):
             (STATE / "worker-failure.log").write_text(traceback.format_exc(limit=6), encoding="utf8")
+        elif attempt in ("ipc", "denied") and os.name == "nt":
+            (ordinary / (attempt + "-failure.log")).write_text(traceback.format_exc(limit=6), encoding="utf8")
         raise
