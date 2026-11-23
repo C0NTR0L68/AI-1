@@ -1,0 +1,21 @@
+{
+  "full_b5": "PASS_ON_D57FE91_NOT_RERUN",
+  "guest_revision": "71efca184a73e800ca36fba5393d84f8814c48f4",
+  "host_scm_and_real_path_qualification": "NOT_RUN",
+  "memory_v2": "OFF",
+  "native_hot_journal_and_lost_ack": "PASS",
+  "native_pipe_cancellation_cycles_pass": 16,
+  "offline_deployment_gate": "PASS",
+  "production": "NO-GO",
+  "review_base": "4058744de5403a26f01e0e3ef5635a90a773d110",
+  "sandbox_closed": true,
+  "sha256": {
+    "cleanup.json": "ED0E99EC1C8B71690E397611F5CB22D0127C9A872F6F879145FE15D82A3D6D72",
+    "guest-result.json": "0029E8DE88D2F0E206BC72EA7CCC9E61E8F3620DFEF1DBE3C567B3B76BA23775",
+    "isolation.json": "7241E62BD5C9479B73CF57E6BD9337072A2384584B465CE3FC5E32D872099D85",
+    "read-only-host.json": "8DF1CAE5CB3123E97BD79CCCFB9DEFFDF33EAD4A5CE09F920B9FE60B7409F660",
+    "transfer.log": "3478A2153EDDEA75DF28E486C986C496A9CABE43CFD6189DDF2BA1F6DEA075FC"
+  },
+  "synthetic_c7_v1": "PASS_ON_4058744_NOT_RERUN",
+  "write_cas": "PLAN_ONLY"
+}

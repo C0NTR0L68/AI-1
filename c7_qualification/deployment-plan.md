@@ -90,3 +90,31 @@ by default, and require separate authorization before data removal.
   receipts, recovery on approved synthetic state, then an owner review.
 - Separate consent for any changes to host service, account, ACL or data.
   Memory V2 remains OFF throughout this read-only preparation.
+
+## Synthetic qualification · 2026-11-23
+
+Three targeted checks passed in a new offline Windows Sandbox with no mapped
+folders or clipboard. The guest ran exact, digest-verified Git blobs and the
+previously pinned Python runtime. No host accounts, services, ACLs or folders
+were changed.
+
+1. The offline gate rejected missing evidence, a mismatched token, shared
+   principals and overlapping storage roots. Complete synthetic evidence
+   permitted review while preserving production NO-GO.
+2. A child exited in an uncommitted transaction after forcing SQLite cache
+   spill. The parent observed a hot rollback journal and changed main-file
+   bytes. Recovery restored the original bytes and head. A second child
+   committed and exited without returning a receipt. The parent read the
+   exact committed revision and a stale CAS was refused.
+3. Sixteen native cycles cancelled a pending pipe accept and a pending read,
+   then verified successful reuse and closure of both Windows handles.
+   This covers the qualified overlapped helper in a bounded loopback-free
+   fixture. Native service-control shutdown and adversarial multi-process
+   load were outside this test.
+
+The separate test processes and Sandbox exited. The prior full B5 and
+C7-v1 runs were not repeated. The IPC and application code are unchanged
+from `4058744`. Review confirmed that native test evidence does not qualify
+the selected production SCM account, actual client token or host path.
+
+[Run receipts, host observations and SHA-256](deployment-evidence).

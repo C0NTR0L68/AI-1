@@ -1,0 +1,11 @@
+{
+  "authority_service_name_observation": "NOT_FOUND_BY_NAME",
+  "d_volume_metadata": {
+    "type": "Fixed",
+    "filesystem": "NTFS",
+    "ready": true
+  },
+  "managed_shell_integrity": [
+    "S-1-16-4096"
+  ]
+}
