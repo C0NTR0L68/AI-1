@@ -84,16 +84,19 @@ try {
     $createdUser = $true
     $credential = [pscredential]::new(".\$user",$password)
     $client = $ordinary.SID
-    [void](Invoke-Scm @('create',$name,'type=','own','start=','demand','binpath=',('"\"' + $exe + '\""'),
-                'obj=',("NT SERVICE\$name")))
+    $py=Join-Path $payload 'runtime\python\python.exe'
+    $probe=Join-Path $payload 'c7_qualification\scm_probe.py'
+    $ErrorActionPreference='Continue'
+    & $py -I -S -B $probe register *> (Join-Path $parcel 'registration.log')
+    $registration=$LASTEXITCODE
+    $ErrorActionPreference='Stop'
+    if ($registration -ne 42) { throw "SCM native registration exit $registration" }
     $created = $true
     $configured = Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$name"
     if ($configured.ImagePath -cne ('"'+$exe+'"') -or $configured.ObjectName -cne "NT SERVICE\$name") {
         throw 'SCM binary path or account differs from the reviewed request'
     }
-    [void](Invoke-Scm @('sidtype',$name,'restricted'))
-    $kind = Invoke-Scm @('qsidtype',$name)
-    if (($kind -join "`n") -notmatch '(?i)RESTRICTED') { throw 'SCM did not confirm restricted SID type' }
+    if ($configured.ServiceSidType -ne 3) { throw 'SCM did not confirm restricted SID type' }
     $authority = ([Security.Principal.NTAccount]::new("NT SERVICE\$name")).Translate([Security.Principal.SecurityIdentifier])
     $rule = @{sid=$system;access='FullControl'}
     Protect-Directory $root @($rule,@{sid=$authority;access='ReadAndExecute'},@{sid=$client;access='ReadAndExecute'})
@@ -107,8 +110,6 @@ try {
     $parcelAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($client,'Modify','None','None','Allow'))
     Set-Acl -LiteralPath $parcel -AclObject $parcelAcl
     Checkpoint roles 42
-    $py=Join-Path $payload 'runtime\python\python.exe'
-    $probe=Join-Path $payload 'c7_qualification\scm_probe.py'
     $phase = 'provision'
     & $py -I -S -B $probe provision *> (Join-Path $parcel 'provision.log')
     if ($LASTEXITCODE -ne 42) { throw "Provision exit $LASTEXITCODE" }

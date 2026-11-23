@@ -108,6 +108,36 @@ def prove_scm_denials():
         require(close(manager))
 
 
+def register_fixture():
+    _, adv = _windows_apis()
+    open_manager = bind(adv, "OpenSCManagerW", W.HANDLE, W.LPCWSTR, W.LPCWSTR, W.DWORD)
+    create = bind(adv, "CreateServiceW", W.HANDLE, W.HANDLE, W.LPCWSTR, W.LPCWSTR,
+                  W.DWORD, W.DWORD, W.DWORD, W.DWORD, W.LPCWSTR, W.LPCWSTR,
+                  ctypes.POINTER(W.DWORD), W.LPCWSTR, W.LPCWSTR, W.LPCWSTR)
+    change = bind(adv, "ChangeServiceConfig2W", W.BOOL, W.HANDLE, W.DWORD, ctypes.c_void_p)
+    delete = bind(adv, "DeleteService", W.BOOL, W.HANDLE)
+    close = bind(adv, "CloseServiceHandle", W.BOOL, W.HANDLE)
+    manager = open_manager(None, None, 3)  # CONNECT | CREATE_SERVICE
+    if not manager:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        name = "AI1C7GuestAuthority"
+        service = create(manager, name, name, 0x10002, 16, 3, 1, f'"{ROOT / "Authority.exe"}"',
+                         None, None, None, "NT SERVICE\\" + name, None)
+        if not service:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            sid_type = W.DWORD(3)  # SERVICE_SID_TYPE_RESTRICTED
+            if not change(service, 5, ctypes.byref(sid_type)):  # SERVICE_CONFIG_SERVICE_SID_INFO
+                error = ctypes.get_last_error()
+                require(delete(service))
+                raise ctypes.WinError(error)
+        finally:
+            require(close(service))
+    finally:
+        require(close(manager))
+
+
 def hashes():
     return [sha256(path.read_bytes()).hexdigest()
             for path in (DB, ROOT / "archives" / "archive.synthetic")]
@@ -117,8 +147,12 @@ def main():
     require(os.name == "nt" and ROOT.parent == Path(r"C:\Program Files")
             and re.fullmatch(r"AI1-C7-[a-f0-9]{32}", ROOT.name))
     phase, = sys.argv[1:]
-    enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
     facts = token_facts()
+    if phase == "register":
+        require(facts["sid"] == "S-1-5-18")
+        register_fixture()
+        return 42
+    enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
     registry_instance = registry()
     journal = DB.with_name(DB.name + "-journal")
     scratch = Path(r"C:\Users\Public\Documents") / ROOT.name
