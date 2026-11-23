@@ -19,6 +19,7 @@ _RESPONSE = struct.Struct(">16sQ32s")
 _CLIENT_ACCESS = 0x0012008B  # FILE_GENERIC_READ | FILE_WRITE_DATA, excludes FILE_CREATE_PIPE_INSTANCE
 _OVERLAPPED = 0x40000000
 _IDENTIFY_ONLY = 0x00110000  # SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
+_IO_INCOMPLETE = 996
 _LOG = logging.getLogger(__name__)
 
 
@@ -40,15 +41,21 @@ def _native():
 
 
 def _io_result(api, operation, deadline):
-    remaining = max(0, int((deadline - monotonic()) * 1000))
-    if api.WaitForSingleObject(operation.event, remaining) != api.WAIT_OBJECT_0:
-        operation.cancel()
-        operation.GetOverlappedResult(True)
-        raise TimeoutError("authority_pipe_deadline")
-    count, error = operation.GetOverlappedResult(False)
-    if error:
-        raise ctypes.WinError(error)
-    return count
+    while monotonic() < deadline:
+        remaining = max(0, int((deadline - monotonic()) * 1000))
+        if api.WaitForSingleObject(operation.event, remaining) != api.WAIT_OBJECT_0:
+            break
+        count, error = operation.GetOverlappedResult(False)
+        if error == 0:
+            return count
+        if error != _IO_INCOMPLETE:
+            raise ctypes.WinError(error)
+        # A signalled event alone did not certify completion on Windows.
+        # Recheck this operation without accepting traffic or extending the deadline.
+        sleep(min(0.005, max(0, deadline - monotonic())))
+    operation.cancel()
+    operation.GetOverlappedResult(True)
+    raise TimeoutError("authority_pipe_deadline")
 
 
 def _send(api, handle, data, deadline):
