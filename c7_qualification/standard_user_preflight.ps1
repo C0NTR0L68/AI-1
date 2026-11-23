@@ -160,6 +160,16 @@ public static class Ai1StandardGuest
 
 $created=$false
 $result=[ordered]@{account=$null;local_logon=$null;ordinary_process=$null;cleanup=$null}
+function Publish-Receipt([string] $Path,[string] $Contents){
+    $pending=$Path+'.pending'
+    $file=[IO.File]::Open($pending,[IO.FileMode]::CreateNew)
+    try {
+        $bytes=[Text.Encoding]::ASCII.GetBytes($Contents)
+        $file.Write($bytes,0,$bytes.Length)
+        $file.Flush($true)
+    } finally { $file.Dispose() }
+    [IO.File]::Move($pending,$Path)
+}
 try {
     $password=ConvertTo-SecureString ('Q8z!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
     $account=New-LocalUser -Name $name -Password $password
@@ -173,7 +183,7 @@ try {
         $result.local_logon=[Ai1StandardGuest]::VerifyCredentials($name,$env:COMPUTERNAME,$memory,$userSid)
         $result.ordinary_process=[Ai1StandardGuest]::Launch($name,$env:COMPUTERNAME,$memory,$userSid)
         if($Bridge -and $result.ordinary_process -eq 42 -and $result.local_logon -eq 42){
-            @{sid=$userSid;preflight=42}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'bridge-ready.json') -Encoding ascii
+            Publish-Receipt (Join-Path $root 'bridge-ready.json') (@{sid=$userSid;preflight=42}|ConvertTo-Json)
             $deadline=[DateTime]::UtcNow.AddMinutes(4)
             $stop=Join-Path $root 'bridge-done'
             while(!(Test-Path -LiteralPath $stop)){
@@ -184,7 +194,7 @@ try {
                     if((Test-Path -LiteralPath $request) -and !(Test-Path -LiteralPath $reply)){
                         $value=[Ai1StandardGuest]::LaunchFixture($name,$env:COMPUTERNAME,$memory,$userSid,
                                                                  (Split-Path -Leaf $root),$phase)
-                        [IO.File]::WriteAllText($reply,[string]$value)
+                        Publish-Receipt $reply ([string]$value)
                     }
                 }
                 Start-Sleep -Milliseconds 150
