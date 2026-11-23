@@ -215,8 +215,9 @@ try {
                 if($LASTEXITCODE -ne 42){throw 'Dedicated profile snapshot was refused'}
                 $keyRoot=[IO.Path]::GetFullPath($profileFacts.key_root)
                 if($keyRoot -notin $dedicated){throw 'Unexpected profile key root'}
-                $quarantine=$keyRoot+'.AI1-qualification-held'
-                $recreated=$keyRoot+'.AI1-qualification-recreated'
+                $revisionTag='.AI1-qualification-'+$TransferId.ToString('N')
+                $quarantine=$keyRoot+$revisionTag+'-held'
+                $recreated=$keyRoot+$revisionTag+'-recreated'
                 if((Test-Path -LiteralPath $quarantine) -or (Test-Path -LiteralPath $recreated)){
                     throw 'Profile trial staging already exists'
                 }
