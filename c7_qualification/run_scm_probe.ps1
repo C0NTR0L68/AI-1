@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][string] $Evidence,
     [ValidateSet('high','medium')][string] $Profile='high',
     [string] $DotenvArchive,
-    [switch] $WriteProfile
+    [switch] $WriteProfile,
+    [switch] $WriteHttp
 )
 $ErrorActionPreference='Stop'
 $parcel='C:\Users\Public\Documents\AI1-C7-'+$TransferId.ToString('N')
@@ -13,6 +14,7 @@ $repo=Split-Path $PSScriptRoot
 $endToEnd = $DotenvArchive -ne '' -and !$WriteProfile
 if (($endToEnd -or $WriteProfile) -and $Profile -ne 'medium') { throw 'Explicit medium enrollment required' }
 if ($WriteProfile -and !$DotenvArchive) { throw 'Pinned guest requirements archive required' }
+if ($WriteHttp -and !$WriteProfile) { throw 'HTTP requires the semantic write fixture' }
 
 function Guest([string] $Body,[string] $Actor='System',[switch] $Encoded){
     $command=if($Encoded){
@@ -81,7 +83,8 @@ $sourceFiles = @('c7_qualification/scm_service.cs','c7_qualification/scm_probe.p
 if ($endToEnd) { $sourceFiles += 'c7_qualification/scm_dpapi_e2e.py' }
 if ($WriteProfile) { $sourceFiles += @('c7_qualification/scm_write_probe.py','app/memory_service_pipe.py',
                                  'app/memory_write_v2.py','app/windows_storage_inspector.py',
-                                 'app/memory_windows_archive.py') }
+                                 'app/memory_windows_archive.py','app/memory_service_http.py') }
+if ($WriteHttp) { $sourceFiles += 'c7_qualification/scm_http_probe.py' }
 foreach($name in $sourceFiles){
     $sources[$name.Split('/')[-1]]=Upload ($name.Split('/')[-1]) (Read-PinnedSource $name)
 }
@@ -110,6 +113,7 @@ $command=(Load-GuestScript 'scm_guest.ps1' $setupHash)+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''' -Profile '''+$Profile+''''
 if ($endToEnd) { $command += ' -EndToEnd' }
 if ($WriteProfile) { $command += ' -WriteProfile' }
+if ($WriteHttp) { $command += ' -WriteHttp' }
 $bridgeBody=(Load-GuestScript 'standard_user_preflight.ps1' $preflightHash)+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -ParcelId '''+$TransferId+''' -Bridge'
 $bridgeCommand='powershell.exe -NoProfile -NonInteractive -Command '+$bridgeBody
@@ -143,7 +147,7 @@ try {
 $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
     ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
-    profile=$Profile; end_to_end=$endToEnd; write_profile=[bool]$WriteProfile
+    profile=$Profile; end_to_end=$endToEnd; write_profile=[bool]$WriteProfile; write_http=[bool]$WriteHttp
 }
 $phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
 if($WriteProfile){$phases=@('application-pins','compile','scm-registration','roles','write-start','write','wrong-peer','write-stop','resume','verify-write','write-final-stop','cleanup')}

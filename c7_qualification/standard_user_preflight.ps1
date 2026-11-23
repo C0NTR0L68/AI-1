@@ -145,7 +145,7 @@ public static class Ai1StandardGuest
             try { evidence=TokenEvidence(token,sid); }
             finally { CloseHandle(token); }
             if(evidence!=42) return evidence;
-            if(ResumeThread(child.thread)!=1 || WaitForSingleObject(child.process,12000)!=0) return 77;
+            if(ResumeThread(child.thread)!=1 || WaitForSingleObject(child.process,18000)!=0) return 77;
             completed=true;
             int code;
             return GetExitCodeProcess(child.process,out code) ? code : 78;

@@ -31,6 +31,7 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
     name = root.name
     write_pipe = "AI1-C7-" + uuid5(UUID(name[7:]), "semantic-write").hex
     client_sid = enrollment["client"]
+    use_http = enrollment.get("http_fixture") is True
     reader = SemanticPipeClient(name, server_sid=sid, client_sid=client_sid, timeout=8.0)
     writer = SemanticPipeClient(write_pipe, server_sid=sid, client_sid=client_sid, timeout=8.0)
     if phase == "serve":
@@ -48,6 +49,13 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         return 42
     require(facts["sid"] == client_sid and facts["integrity"] == 8192 and not facts["elevated"])
     if phase == "write":
+        wrong_owner = SemanticPipeClient(name, server_sid="S-1-5-18", client_sid=client_sid)
+        try:
+            wrong_owner.request({"op": "head"})
+        except HeadUnavailable as error:
+            require(str(error) == "authority_wrong_owner")
+        else:
+            raise AssertionError("Unpinned server owner was accepted")
         expected = reader.request({"op": "head"})
         require(unpack_head(expected).revision == 0)
         try:
@@ -66,7 +74,12 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         request = {"op": "mutate", "head": expected, "id": str(uuid5(generation, "save")),
                    "kind": "create", "text": intent.text, "note": None, "revision": None}
         refuse(reader, request)
-        committed = writer.request(request)
+        refuse(writer, {**request, "archive": "client-supplied bytes are never accepted"})
+        if use_http:
+            from c7_qualification.scm_http_probe import local_action
+            committed = local_action(scratch, reader, writer, "write", request)
+        else:
+            committed = writer.request(request)
         require(unpack_head(committed).revision == 1)
         refuse(writer, request)
         refuse(writer, {**request, "id": str(uuid5(generation, "stale"))})
@@ -82,13 +95,21 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         return 42
     if phase == "resume":
         require(parse_memory_command("Что ты помнишь?", enabled=True).action is MemoryAction.LIST)
-        (note, revision, text), = reader.request({"op": "recall"})
+        if use_http:
+            from c7_qualification.scm_http_probe import local_action
+            notes = local_action(scratch, reader, writer, "recall")
+        else:
+            notes = reader.request({"op": "recall"})
+        (note, revision, text), = notes
         require(text == "мой тестовый код — 12345")
         request = {"op": "mutate", "head": reader.request({"op": "head"}),
                    "id": str(uuid5(generation, "delete")), "kind": "delete", "text": None,
                    "note": note, "revision": revision}
         with (scratch / "pending-delete.json").open("x", encoding="ascii") as output:
             json.dump(request, output)
+        if use_http:
+            require(local_action(scratch, reader, writer, "delete", request) is None)
+            return 42
         try:
             writer.request(request)
         except HeadUnavailable:
@@ -97,6 +118,9 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
     require(phase == "verify-write")
     request = json.loads((scratch / "pending-delete.json").read_bytes())
     committed = writer.request({**request, "op": "status"})
+    if use_http:
+        from c7_qualification.scm_http_probe import local_action
+        require(local_action(scratch, reader, writer, "reconcile", request) == committed)
     require(unpack_head(committed).revision == 2 and reader.request({"op": "head"}) == committed)
     require(reader.request({"op": "recall"}) == [])
     return 42

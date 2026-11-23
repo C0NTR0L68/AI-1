@@ -130,6 +130,7 @@ class SemanticPipeClient(PipeAuthorityClient):
                 raise HeadUnavailable("semantic_role_refused")
             nonce = _receive(api, handle, 32, deadline)
             _send(api, handle, nonce, deadline)
+            _send_json(api, handle, deadline, command, _REQUEST_LIMIT)
             reply = _receive_json(api, handle, deadline, _RESPONSE_LIMIT)
             _send(api, handle, b"A", deadline)
             if type(reply) is dict and reply.keys() == {"ok"}:

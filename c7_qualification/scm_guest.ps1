@@ -2,7 +2,8 @@ param([Parameter(Mandatory)][Guid] $TransferId,
       [Parameter(Mandatory)][ValidatePattern('^[A-F0-9]{64}$')][string] $SourceManifestSha256,
       [ValidateSet('high','medium')][string] $Profile='high',
       [switch] $EndToEnd,
-      [switch] $WriteProfile)
+      [switch] $WriteProfile,
+      [switch] $WriteHttp)
 $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
@@ -22,6 +23,7 @@ if($bridge.preflight -ne 42 -or !$ordinary.Enabled -or $ordinary.SID.Value -ne $
 $client = $ordinary.SID
 if (($EndToEnd -or $WriteProfile) -and $Profile -ne 'medium') { exit 68 }
 if ($EndToEnd -and $WriteProfile) { exit 69 }
+if ($WriteHttp -and !$WriteProfile) { exit 69 }
 
 $archive = Join-Path $parcel 'c7-binding.zip'
 if ((Get-FileHash -LiteralPath $archive).Hash -ne '9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500') { exit 64 }
@@ -76,12 +78,13 @@ try {
     if ($EndToEnd) { $files += 'scm_dpapi_e2e.py' }
     if ($WriteProfile) {
         $files += @('scm_write_probe.py','memory_service_pipe.py','memory_write_v2.py',
-                    'windows_storage_inspector.py','memory_windows_archive.py')
+                    'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py')
     }
+    if ($WriteHttp) { $files += 'scm_http_probe.py' }
     foreach ($file in $files) {
         $input = Join-Path $parcel $file
         $isApp=$file -in ('memory_authority_pipe.py','memory_service_pipe.py','memory_write_v2.py',
-                        'windows_storage_inspector.py','memory_windows_archive.py')
+                        'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py')
         $target = Join-Path $payload $(if($isApp){'app\'+$file}else{'c7_qualification\'+$file})
         [IO.File]::Copy($input,$target,($WriteProfile -and $isApp))
         if ((Get-FileHash -LiteralPath $target).Hash -ne $pins.$file) { exit 64 }
@@ -142,6 +145,7 @@ try {
     $integrity=if($Profile -eq 'medium'){8192}else{12288}
     $enrollment=@{authority=$authority.Value;client=$client.Value;integrity=$integrity}
     if($WriteProfile){$enrollment.write_fixture=$true}
+    if($WriteHttp){$enrollment.http_fixture=$true}
     $enrollment|
         ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
