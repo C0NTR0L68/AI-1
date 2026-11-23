@@ -92,14 +92,14 @@ def qualify(phase, scratch, enrollment, generation, client):
     def session():
         yield client
 
-    factory = MemoryStorageFactory(session, namespace, generation, 8)
     from app import start
     import httpx
     import uvicorn
 
-    def launch(label, expected=None):
+    def launch(label, expected=None, enrolled_generation=generation):
         configuration = scratch / (label + "-workspace.sqlite3")
         require(not configuration.exists())
+        factory = MemoryStorageFactory(session, namespace, enrolled_generation, 8)
 
         def run(target, **options):
             require(options == {"factory": True, "host": "127.0.0.1", "port": 8000,
@@ -156,6 +156,8 @@ def qualify(phase, scratch, enrollment, generation, client):
     launch(phase)
     if phase != "e2e-live":
         return [phase]
+    launch("wrong-generation", lambda error: isinstance(error, HeadUnavailable)
+           and str(error) == "head_generation_mismatch", uuid4())
     current = directory / ("memory-" + enrolled["current"] + ".v2a")
     verified = namespace.read(digest)
     stale_digest = bytes.fromhex(enrolled["previous"])
@@ -183,4 +185,4 @@ def qualify(phase, scratch, enrollment, generation, client):
             directory.rmdir()
         saved.rename(directory)
     launch("e2e-restored")
-    return [phase, "corrupt", "stale", "replaced-path", "e2e-restored"]
+    return [phase, "wrong-generation", "corrupt", "stale", "replaced-path", "e2e-restored"]

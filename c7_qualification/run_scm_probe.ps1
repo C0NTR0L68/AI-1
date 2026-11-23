@@ -117,7 +117,7 @@ $result=[ordered]@{
     profile=$Profile; end_to_end=$endToEnd
 }
 $phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
-if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
+if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','wrong-generation','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
 foreach($phase in $phases){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
     $result[$phase]=if($code -ne 90){$code}else{$null}

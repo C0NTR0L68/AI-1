@@ -137,6 +137,14 @@ try {
         ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
     Protect-Directory $clientScratch @($rule,@{sid=$client;access='Modify'})
+    if ($EndToEnd) {
+        # The client must inspect the pinned parent handle. Keep the grant on
+        # this directory only so bridge requests and protected inputs stay private.
+        $parcelAcl = Get-Acl -LiteralPath $parcel
+        $parcelAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            $client,'ReadAndExecute','None','None','Allow'))
+        Set-Acl -LiteralPath $parcel -AclObject $parcelAcl
+    }
     Checkpoint roles 42
     function Invoke-Ordinary([string] $Action) {
         $request=Join-Path $parcel ($Action+'.request')
@@ -196,7 +204,7 @@ try {
         $phase = 'e2e-live'
         if ((Invoke-Ordinary e2e-live) -ne 42) { throw 'LOCAL and archive checks failed' }
         $checkLabels = Get-Content -LiteralPath (Join-Path $clientScratch 'e2e-live-checks.json') -Raw|ConvertFrom-Json
-        if (($checkLabels -join ':') -cne 'e2e-live:corrupt:stale:replaced-path:e2e-restored') { throw 'Archive check coverage mismatch' }
+        if (($checkLabels -join ':') -cne 'e2e-live:wrong-generation:corrupt:stale:replaced-path:e2e-restored') { throw 'Archive check coverage mismatch' }
         foreach ($label in $checkLabels) { Checkpoint $label 42 }
     }
     $phase = 'ipc'
