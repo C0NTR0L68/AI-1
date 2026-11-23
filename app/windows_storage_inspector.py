@@ -14,6 +14,13 @@ from app.memory_storage_policy import FileIdentity, HandleEvidence, MEMORY_PATH,
 
 
 _SID = re.compile(r"S-1-5-21(?:-(?:0|[1-9][0-9]{0,9})){4}\Z")
+_SERVICE_OWNER_SID = re.compile(r"S-1-5-80(?:-(?:0|[1-9][0-9]{0,9})){5}\Z")
+
+
+def _valid_storage_owner(owner_sid, allow_service_owner=False):
+    return (type(owner_sid) is str and
+            (_SID.fullmatch(owner_sid) is not None or (allow_service_owner is True
+             and _SERVICE_OWNER_SID.fullmatch(owner_sid) is not None)))
 _DEVICE = re.compile(r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[1-9¹²³])\Z", re.IGNORECASE)
 _SYSTEM_SID = "S-1-5-18"
 
@@ -351,10 +358,12 @@ def inspect_component(
     expected_kind: str,
     owner_sid: str | None = None,
     require_private_acl: bool = False,
+    allow_service_owner: bool = False,
 ) -> HandleEvidence:
     """Return a snapshot; no handle or authorization survives this call."""
     with _component(path, expected_kind=expected_kind, owner_sid=owner_sid,
-                    require_private_acl=require_private_acl, pinned=False) as evidence:
+                    require_private_acl=require_private_acl, pinned=False,
+                    allow_service_owner=allow_service_owner) as evidence:
         return evidence
 
 
@@ -364,7 +373,7 @@ def hold_component_evidence(path, *, expected_kind, owner_sid=None, require_priv
                       require_private_acl=require_private_acl, pinned=True)
 
 
-def hold_archive_directory(path, *, owner_sid=None, require_private_acl=True):
+def hold_archive_directory(path, *, owner_sid=None, require_private_acl=True, allow_service_owner=False):
     """Pin the directory against deletion while permitting child publication.
 
     Windows needs write sharing on this directory for rename of its children.
@@ -372,18 +381,19 @@ def hold_archive_directory(path, *, owner_sid=None, require_private_acl=True):
     The ordinary C7 inspection keeps its more restrictive share mode.
     """
     return _component(path, expected_kind="directory", owner_sid=owner_sid,
-                      require_private_acl=require_private_acl, pinned=True, publish_children=True)
+                      require_private_acl=require_private_acl, pinned=True, publish_children=True,
+                      allow_service_owner=allow_service_owner)
 
 
 @contextmanager
 def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned,
-               include_handle=False, publish_children=False):
+               include_handle=False, publish_children=False, allow_service_owner=False):
     _validate_local_path(path)
     if expected_kind not in ("file", "directory"):
         raise WindowsStorageInspectionError("kind")
     if type(require_private_acl) is not bool:
         raise WindowsStorageInspectionError("acl")
-    if owner_sid is not None and (type(owner_sid) is not str or not _SID.fullmatch(owner_sid)):
+    if owner_sid is not None and not _valid_storage_owner(owner_sid, allow_service_owner):
         raise WindowsStorageInspectionError("owner")
     if require_private_acl and owner_sid is None:
         raise WindowsStorageInspectionError("owner")
@@ -472,7 +482,7 @@ def _component(path, *, expected_kind, owner_sid, require_private_acl, pinned,
         yield (evidence, kernel32, handle, standard.EndOfFile) if include_handle else evidence
 
 
-def read_pinned_artifact(path, *, expected, max_bytes, require_private_acl=True):
+def read_pinned_artifact(path, *, expected, max_bytes, require_private_acl=True, allow_service_owner=False):
     """Read an existing artifact through the exact native handle inspected.
 
     The caller supplies an independently admitted file identity and must hold a
@@ -485,7 +495,8 @@ def read_pinned_artifact(path, *, expected, max_bytes, require_private_acl=True)
             or type(require_private_acl) is not bool):
         raise WindowsStorageInspectionError("artifact_input")
     with _component(path, expected_kind="file", owner_sid=expected.owner if require_private_acl else None,
-                    require_private_acl=require_private_acl, pinned=True, include_handle=True) as opened:
+                    require_private_acl=require_private_acl, pinned=True, include_handle=True,
+                    allow_service_owner=allow_service_owner) as opened:
         evidence, kernel, handle, size = opened
         if (evidence.identity != expected.identity or evidence.links != 1
                 or require_private_acl and (evidence.owner != expected.owner or evidence.untrusted_mutation is not False)):

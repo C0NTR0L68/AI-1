@@ -136,6 +136,24 @@ class PipeAuthorityClient:
     def _exchange(self, operation):
         if type(operation) is not bytes or len(operation) != 1:
             raise ValueError("One bounded authority operation required")
+        with self._connection() as (api, handle, deadline):
+            _send(api, handle, operation, deadline)
+            status = _receive(api, handle, 1, deadline)
+            if status == b"!":
+                _send(api, handle, b"A", deadline)
+                raise HeadUnavailable("authority_operation_refused")
+            if status != b"H":
+                raise HeadUnavailable("authority_invalid_response")
+            generation, revision, digest = _RESPONSE.unpack(_receive(api, handle, _RESPONSE.size, deadline))
+            try:
+                head = Head(UUID(bytes=generation), revision, digest)
+            except ValueError as error:
+                raise HeadUnavailable("authority_invalid_response") from error
+            _send(api, handle, b"A", deadline)
+            return head
+
+    @contextmanager
+    def _connection(self):
         api = _native()
         kernel, advapi = _windows_apis()
         deadline = monotonic() + self._timeout
@@ -152,17 +170,7 @@ class PipeAuthorityClient:
             try:
                 if _owner(kernel, advapi, handle) != self._server_sid:
                     raise HeadUnavailable("authority_wrong_owner")
-                _send(api, handle, operation, deadline)
-                status = _receive(api, handle, 1, deadline)
-                if status == b"!":
-                    _send(api, handle, b"A", deadline)
-                    raise HeadUnavailable("authority_operation_refused")
-                if status != b"H":
-                    raise HeadUnavailable("authority_invalid_response")
-                generation, revision, digest = _RESPONSE.unpack(_receive(api, handle, _RESPONSE.size, deadline))
-                head = Head(UUID(bytes=generation), revision, digest)
-                _send(api, handle, b"A", deadline)
-                return head
+                yield api, handle, deadline
             finally:
                 api.CloseHandle(handle)
         except (OSError, EOFError, ValueError) as error:
@@ -180,6 +188,25 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
     _configuration(name, server_sid, client_sid, timeout)
     if type(generation) is not UUID or generation.int == 0:
         raise ValueError("Explicit enrolled generation required")
+
+    def dispatch(api, handle, deadline, operation):
+        if operation != b"R":
+            _send(api, handle, b"!", deadline)
+            return "denied" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
+        head = registry.read()
+        if type(head) is not Head or head.generation != generation:
+            raise HeadUnavailable("authority_generation_mismatch")
+        _send(api, handle, b"H" + _RESPONSE.pack(head.generation.bytes, head.revision, head.digest), deadline)
+        return "read" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
+
+    with _authenticated_listener(name, server_sid=server_sid, client_sid=client_sid,
+                                 timeout=timeout, client_integrity=client_integrity, dispatch=dispatch) as serve:
+        yield serve
+
+
+@contextmanager
+def _authenticated_listener(name, *, server_sid, client_sid, timeout, client_integrity, dispatch):
+    _configuration(name, server_sid, client_sid, timeout)
     if type(client_integrity) is not int or client_integrity not in (8192, 12288):
         raise ValueError("Only a reviewed medium or high client integrity profile is supported")
     api = _native()
@@ -226,14 +253,10 @@ def authority_listener(name, *, server_sid, client_sid, registry, generation, ti
         try:
             deadline = monotonic() + timeout
             operation = _receive(api, handle, 1, deadline)
-            if _peer_sid(kernel, advapi, handle) != client_sid or operation != b"R":
+            if _peer_sid(kernel, advapi, handle) != client_sid:
                 _send(api, handle, b"!", deadline)
                 return "denied" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
-            head = registry.read()
-            if type(head) is not Head or head.generation != generation:
-                raise HeadUnavailable("authority_generation_mismatch")
-            _send(api, handle, b"H" + _RESPONSE.pack(head.generation.bytes, head.revision, head.digest), deadline)
-            return "read" if _receive(api, handle, 1, deadline) == b"A" else "disconnected"
+            return dispatch(api, handle, deadline, operation)
         except (OSError, EOFError, HeadUnavailable) as error:
             _LOG.debug("Authority pipe closed: %s / %s", type(error).__name__, getattr(error, "winerror", None))
             return "disconnected"

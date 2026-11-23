@@ -118,7 +118,7 @@ public static class Ai1StandardGuest
     {
         if(!System.Text.RegularExpressions.Regex.IsMatch(parcel,@"\AAI1-C7-[a-f0-9]{32}\z")
             || !System.Text.RegularExpressions.Regex.IsMatch(kind,
-                @"\A(ipc|denied|counterfeit|dropped|ipc-recovered|e2e-seal|e2e-live|e2e-drop|e2e-timeout|e2e-down|e2e-restart)\z")) return 78;
+                @"\A(ipc|denied|counterfeit|dropped|ipc-recovered|e2e-seal|e2e-live|e2e-drop|e2e-timeout|e2e-down|e2e-restart|write|resume|verify-write)\z")) return 78;
         string root=System.IO.Path.Combine(@"C:\Program Files",parcel,"payload");
         string python=System.IO.Path.Combine(root,@"runtime\python\python.exe");
         string probe=System.IO.Path.Combine(root,@"c7_qualification\scm_probe.py");
@@ -190,7 +190,7 @@ try {
             while(!(Test-Path -LiteralPath $stop)){
                 if([DateTime]::UtcNow -gt $deadline){throw 'Synthetic bridge deadline'}
                 foreach($phase in 'ipc','denied','counterfeit','dropped','ipc-recovered',
-                    'e2e-seal','e2e-live','e2e-drop','e2e-timeout','e2e-down','e2e-restart'){
+                    'e2e-seal','e2e-live','e2e-drop','e2e-timeout','e2e-down','e2e-restart','write','resume','verify-write'){
                     $request=Join-Path $root ($phase+'.request')
                     $reply=Join-Path $root ($phase+'.reply')
                     if((Test-Path -LiteralPath $request) -and !(Test-Path -LiteralPath $reply)){

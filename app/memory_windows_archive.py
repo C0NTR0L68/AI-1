@@ -16,9 +16,9 @@ from app.windows_storage_inspector import (
     _INVALID_HANDLE_VALUE,
     _FILE_FLAG_OPEN_REPARSE_POINT,
     _GENERIC_WRITE,
-    _SID,
     _release_after,
     _validate_local_path,
+    _valid_storage_owner,
     _windows_apis,
     hold_archive_directory,
     hold_component_evidence,
@@ -33,9 +33,9 @@ class _SecurityAttributes(ctypes.Structure):
 
 
 @contextmanager
-def _creation_security(kernel, advapi, owner_sid, *, directory=False):
+def _creation_security(kernel, advapi, owner_sid, *, directory=False, allow_service_owner=False):
     """Build an explicit protected DACL for a newly created object only."""
-    if not _SID.fullmatch(owner_sid):
+    if not _valid_storage_owner(owner_sid, allow_service_owner):
         raise ValueError("Explicit owner SID required")
     flags = "OICI" if directory else ""
     sddl = f"O:{owner_sid}D:P(A;{flags};FA;;;SY)(A;{flags};FA;;;{owner_sid})"
@@ -70,7 +70,7 @@ def _require_fixed_ntfs(drive):
         raise WindowsStorageInspectionError("archive_volume")
 
 
-def _create_private_file(path, data, owner_sid):
+def _create_private_file(path, data, owner_sid, *, allow_service_owner=False):
     kernel, advapi = _windows_apis()
     write = kernel.WriteFile
     write.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
@@ -79,7 +79,7 @@ def _create_private_file(path, data, owner_sid):
     flush = kernel.FlushFileBuffers
     flush.argtypes = [wintypes.HANDLE]
     flush.restype = wintypes.BOOL
-    with _creation_security(kernel, advapi, owner_sid) as attributes:
+    with _creation_security(kernel, advapi, owner_sid, allow_service_owner=allow_service_owner) as attributes:
         # No sharing and CREATE_NEW. Existing targets never get a write handle.
         handle = kernel.CreateFileW(str(path), _GENERIC_WRITE, 0, attributes, 1,
                                     _FILE_FLAG_OPEN_REPARSE_POINT, None)
@@ -98,11 +98,12 @@ def _create_private_file(path, data, owner_sid):
 class PrivateArchiveDirectory:
     """Use independently enrolled ancestor identities, and inspect each open."""
 
-    def __init__(self, path, *, owner_sid, ancestors):
+    def __init__(self, path, *, owner_sid, ancestors, allow_service_owner=False):
         _validate_local_path(path)
         drive, tail = ntpath.splitdrive(path)
         parts = tail[1:].split("\\")
-        if (not tail[1:] or not isinstance(owner_sid, str) or not _SID.fullmatch(owner_sid)
+        if (not tail[1:] or type(allow_service_owner) is not bool
+                or not _valid_storage_owner(owner_sid, allow_service_owner)
                 or type(ancestors) is not tuple or len(ancestors) != len(parts) + 1
                 or any(type(item) is not FileIdentity or type(item.native_id) is not bytes
                        or len(item.native_id) != 16 or not any(item.native_id) for item in ancestors)
@@ -116,6 +117,7 @@ class PrivateArchiveDirectory:
         self._directory = Path(path)
         self._owner_sid = owner_sid
         self._ancestors = ancestors
+        self._allow_service_owner = allow_service_owner
 
     @contextmanager
     def hold(self, path):
@@ -128,7 +130,8 @@ class PrivateArchiveDirectory:
                 if held.identity != expected:
                     raise WindowsStorageInspectionError("archive_ancestor_identity")
             held = stack.enter_context(hold_archive_directory(
-                self._names[-1], owner_sid=self._owner_sid, require_private_acl=True))
+                self._names[-1], owner_sid=self._owner_sid, require_private_acl=True,
+                allow_service_owner=self._allow_service_owner))
             if held.identity != self._ancestors[-1] or held.untrusted_mutation is not False:
                 raise WindowsStorageInspectionError("archive_directory_identity")
             yield
@@ -137,10 +140,12 @@ class PrivateArchiveDirectory:
         if path.parent != self._directory:
             raise WindowsStorageInspectionError("archive_directory")
         evidence = inspect_component(str(path), expected_kind="file",
-                                     owner_sid=self._owner_sid, require_private_acl=True)
+                                     owner_sid=self._owner_sid, require_private_acl=True,
+                                     allow_service_owner=self._allow_service_owner)
         if evidence.identity.volume != self._ancestors[-1].volume:
             raise WindowsStorageInspectionError("archive_volume")
-        return read_pinned_artifact(str(path), expected=evidence, max_bytes=limit)
+        return read_pinned_artifact(str(path), expected=evidence, max_bytes=limit,
+                                    allow_service_owner=self._allow_service_owner)
 
     def read(self, fingerprint):
         return read_published_archive(self._directory, fingerprint=fingerprint,
@@ -149,4 +154,5 @@ class PrivateArchiveDirectory:
     def publish(self, archive):
         return publish_archive(archive, self._directory, hold_directory=self.hold,
                                read_bound=self._read_bound,
-                               write_pending=lambda path, data: _create_private_file(path, data, self._owner_sid))
+                               write_pending=lambda path, data: _create_private_file(
+                                   path, data, self._owner_sid, allow_service_owner=self._allow_service_owner))

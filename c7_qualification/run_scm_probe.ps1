@@ -4,13 +4,15 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Revision,
     [Parameter(Mandatory)][string] $Evidence,
     [ValidateSet('high','medium')][string] $Profile='high',
-    [string] $DotenvArchive
+    [string] $DotenvArchive,
+    [switch] $WriteProfile
 )
 $ErrorActionPreference='Stop'
 $parcel='C:\Users\Public\Documents\AI1-C7-'+$TransferId.ToString('N')
 $repo=Split-Path $PSScriptRoot
-$endToEnd = $DotenvArchive -ne ''
-if ($endToEnd -and $Profile -ne 'medium') { throw 'Explicit medium enrollment required' }
+$endToEnd = $DotenvArchive -ne '' -and !$WriteProfile
+if (($endToEnd -or $WriteProfile) -and $Profile -ne 'medium') { throw 'Explicit medium enrollment required' }
+if ($WriteProfile -and !$DotenvArchive) { throw 'Pinned guest requirements archive required' }
 
 function Guest([string] $Body,[string] $Actor='System',[switch] $Encoded){
     $command=if($Encoded){
@@ -37,28 +39,53 @@ function Read-PinnedSource([string] $Name) {
     $f=Join-Path $repo $Name
     $pin=git -C $repo rev-parse "${Revision}:$Name"
     $working=git -C $repo hash-object --no-filters -- $f
-    if($LASTEXITCODE -ne 0 -or $working -ne $pin){throw 'SCM source is not the reviewed Git blob'}
-    return ,([IO.File]::ReadAllBytes($f))
+    if($LASTEXITCODE -ne 0 -or $pin -notmatch '^[0-9a-f]{40}$'){throw 'SCM Git pin unavailable'}
+    $local=[IO.File]::ReadAllBytes($f)
+    if($working -eq $pin){return ,$local}
+    $info=[Diagnostics.ProcessStartInfo]::new('git')
+    $info.UseShellExecute=$false
+    $info.RedirectStandardOutput=$true
+    foreach($argument in '-C',$repo,'cat-file','blob',$pin){$info.ArgumentList.Add($argument)}
+    $process=[Diagnostics.Process]::Start($info)
+    $buffer=[IO.MemoryStream]::new()
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($buffer)
+        $process.WaitForExit()
+        if($process.ExitCode){throw 'SCM Git bytes unavailable'}
+        $source=$buffer.ToArray()
+    } finally {$buffer.Dispose();$process.Dispose()}
+    $encoding=[Text.UTF8Encoding]::new($false,$true)
+    if($encoding.GetString($local).Replace("`r`n","`n") -cne $encoding.GetString($source)){
+        throw 'SCM checkout differs from the reviewed Git blob'
+    }
+    return ,$source
 }
 
 function Upload([string] $Name,[byte[]] $Bytes) {
     $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
     $destination=$parcel+'\'+$Name
-    $base64=[Convert]::ToBase64String($Bytes)
-    $body='$ErrorActionPreference=''Stop'';$p='''+$destination+''';$bytes=[Convert]::FromBase64String('''+$base64+''');'+
-        '$f=[IO.File]::Open($p,[IO.FileMode]::CreateNew);try{$f.Write($bytes,0,$bytes.Length);$f.Flush($true)}finally{$f.Dispose()};'+
-        'if((Get-FileHash -LiteralPath $p).Hash -ne '''+$hash+'''){exit 66};exit 42'
-    if((Guest $body) -ne 42){throw 'Guest source upload not attested'}
+    for($offset=0;$offset -lt $Bytes.Length;$offset+=16000){
+        $base64=[Convert]::ToBase64String($Bytes,$offset,[Math]::Min(16000,$Bytes.Length-$offset))
+        $mode=if($offset -eq 0){'CreateNew'}else{'Append'}
+        $body='$ErrorActionPreference=''Stop'';$p='''+$destination+''';$bytes=[Convert]::FromBase64String('''+$base64+''');'+
+            '$f=[IO.File]::Open($p,[IO.FileMode]::'+$mode+');try{$f.Write($bytes,0,$bytes.Length);$f.Flush($true)}finally{$f.Dispose()};exit 42'
+        if((Guest $body) -ne 42){throw 'Guest source upload failed'}
+    }
+    $verify='if((Get-FileHash -LiteralPath '''+$destination+''').Hash -ne '''+$hash+'''){exit 66};exit 42'
+    if((Guest $verify) -ne 42){throw 'Guest source upload not attested'}
     return $hash
 }
 
 $sources=[ordered]@{}
 $sourceFiles = @('c7_qualification/scm_service.cs','c7_qualification/scm_probe.py','app/memory_authority_pipe.py')
 if ($endToEnd) { $sourceFiles += 'c7_qualification/scm_dpapi_e2e.py' }
+if ($WriteProfile) { $sourceFiles += @('c7_qualification/scm_write_probe.py','app/memory_service_pipe.py',
+                                 'app/memory_write_v2.py','app/windows_storage_inspector.py',
+                                 'app/memory_windows_archive.py') }
 foreach($name in $sourceFiles){
     $sources[$name.Split('/')[-1]]=Upload ($name.Split('/')[-1]) (Read-PinnedSource $name)
 }
-if ($endToEnd) {
+if ($endToEnd -or $WriteProfile) {
     if ((Get-FileHash -LiteralPath $DotenvArchive).Hash -ne 'FF8F3C00CAA41A26A3C5328653E55AFF70F079E078518082C50D2A946AEA401E') {
         throw 'Dependency pin mismatch'
     }
@@ -72,17 +99,19 @@ if ($endToEnd) {
     $sources.application=$appPins
 }
 $manifest=Upload 'source-pins.json' ([Text.Encoding]::UTF8.GetBytes(($sources|ConvertTo-Json)))
-$setup=Read-PinnedSource 'c7_qualification/scm_guest.ps1'
-$setupHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($setup))
-$setup64=[Convert]::ToBase64String($setup)
-$command='$ErrorActionPreference=''Stop'';$bytes=[Convert]::FromBase64String('''+$setup64+''');'+
+$setupHash=Upload 'scm_guest.ps1' (Read-PinnedSource 'c7_qualification/scm_guest.ps1')
+$preflightHash=Upload 'standard_user_preflight.ps1' (Read-PinnedSource 'c7_qualification/standard_user_preflight.ps1')
+function Load-GuestScript([string] $Name,[string] $Hash){
+    return '$ErrorActionPreference=''Stop'';$bytes=[IO.File]::ReadAllBytes('''+$parcel+'\'+$Name+''');'+
+        '$sha=[Security.Cryptography.SHA256]::Create();try{$pin=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace(''-'','''')}finally{$sha.Dispose()};'+
+        'if($pin -cne '''+$Hash+'''){exit 66};'
+}
+$command=(Load-GuestScript 'scm_guest.ps1' $setupHash)+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''' -Profile '''+$Profile+''''
 if ($endToEnd) { $command += ' -EndToEnd' }
-$preflight=Read-PinnedSource 'c7_qualification/standard_user_preflight.ps1'
-$preflightHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($preflight))
-$preflight64=[Convert]::ToBase64String($preflight)
-$bridgeBody='$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+
-    $preflight64+''')));& $s -ParcelId '''+$TransferId+''' -Bridge'
+if ($WriteProfile) { $command += ' -WriteProfile' }
+$bridgeBody=(Load-GuestScript 'standard_user_preflight.ps1' $preflightHash)+
+    '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -ParcelId '''+$TransferId+''' -Bridge'
 $bridgeCommand='powershell.exe -NoProfile -NonInteractive -Command '+$bridgeBody
 $job=Start-ThreadJob -ArgumentList $SandboxId,$bridgeCommand -ScriptBlock {
     param($sid,$line)
@@ -114,9 +143,10 @@ try {
 $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
     ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
-    profile=$Profile; end_to_end=$endToEnd
+    profile=$Profile; end_to_end=$endToEnd; write_profile=[bool]$WriteProfile
 }
 $phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
+if($WriteProfile){$phases=@('application-pins','compile','scm-registration','roles','write-start','write','wrong-peer','write-stop','resume','verify-write','write-final-stop','cleanup')}
 if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','wrong-generation','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
 foreach($phase in $phases){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
@@ -131,11 +161,18 @@ if($endToEnd -and $result['dpapi-boundary'] -eq 42){
 }
 if($exitCode -ne 42){
     $result.failed_phase_code=Guest ($prefix+'$f=Join-Path $p ''failed-phase.code'';if(!(Test-Path $f)){exit 90};'+
-        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'');exit (100+[array]::IndexOf($a,$v))')
+        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'',''write-start'',''write'',''resume'',''verify-write'');exit (100+[array]::IndexOf($a,$v))')
     $result.diagnostic_code=Guest ($prefix+'$f=Join-Path $p ''failure.log'';if(!(Test-Path $f)){exit 90};$s=Get-Content $f -Raw;'+
         'if($s -match ''SCM operation failed with exit (\d+)''){exit [int]$Matches[1]};'+
         'if($s -match ''binary path or account''){exit 91};if($s -match ''did not confirm restricted''){exit 92};'+
         'if($s -match ''Guest C\# compiler exit (\d+)''){exit (100+[int]$Matches[1])};exit 99')
+    if($WriteProfile){
+        $diagnose='$r=Join-Path ''C:\Program Files'' '''+(Split-Path -Leaf $parcel)+''';'+
+            '$f=Join-Path $r ''state\worker-failure.log'';if(!(Test-Path -LiteralPath $f)){exit 90};'+
+            '$s=Get-Content -LiteralPath $f -Raw;if($s -match ''Windows error (-?\d+)''){exit ([int]$Matches[1])};'+
+            '$m=[regex]::Matches($s,''scm_write_probe.py", line (\d+)'');if($m.Count){exit (2000+[int]$m[$m.Count-1].Groups[1].Value)};exit 99'
+        $result.worker_diagnostic_code=Guest $diagnose
+    }
 }
 $result|ConvertTo-Json -Depth 6|Tee-Object -FilePath $Evidence
 if($exitCode -ne 42 -or $bridgeExit -ne 42){exit 1}

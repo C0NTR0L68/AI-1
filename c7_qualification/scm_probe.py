@@ -21,6 +21,7 @@ STATE = ROOT / "state"
 DB = STATE / "head.sqlite3"
 GENERATION = UUID("635f83dd-3bb7-4041-b4c8-7d39cb25d13a")
 E2E = ("e2e-seal", "e2e-live", "e2e-drop", "e2e-timeout", "e2e-down", "e2e-restart")
+WRITE_PHASES = ("write", "resume", "verify-write")
 sys.path.insert(0, str(PAYLOAD))
 sys.path.append(str(PAYLOAD / "deps"))
 
@@ -152,6 +153,10 @@ def main():
         register_fixture()
         return 42
     enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
+    if enrollment.get("write_fixture") is True:
+        from c7_qualification.scm_write_probe import open_probe
+        scratch = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
+        return open_probe(phase, ROOT, STATE, scratch, facts, enrollment, GENERATION)
     dpapi = enrollment.get("dpapi")
     revision = int(dpapi is not None)
     current = Head(GENERATION, revision, bytes.fromhex(dpapi["current"]) if dpapi else digest(0))
@@ -309,13 +314,13 @@ if __name__ == "__main__":
     ordinary = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     try:
         result = main()
-        if attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E):
+        if attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E, *WRITE_PHASES):
             (ordinary / (attempt + ".json")).write_text(
                 json.dumps({"pid": os.getpid(), "code": result, "token": token_facts()}), encoding="ascii")
         raise SystemExit(result)
     except Exception:
         if sys.argv[1:] == ["serve"] and os.name == "nt" and ROOT.parent == Path(r"C:\Program Files"):
             (STATE / "worker-failure.log").write_text(traceback.format_exc(limit=6), encoding="utf8")
-        elif attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E) and os.name == "nt":
+        elif attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E, *WRITE_PHASES) and os.name == "nt":
             (ordinary / (attempt + "-failure.log")).write_text(traceback.format_exc(limit=6), encoding="utf8")
         raise

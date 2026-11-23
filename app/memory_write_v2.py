@@ -85,12 +85,15 @@ class ArchiveReducer:
                              ensure_ascii=False, separators=(",", ":")).encode("utf8")
         return hmac.digest(key, b"ai1-authority-mutation-v1\0" + payload, "sha256")
 
-    def identify(self, head, operation_id, mutation):
+    def identify(self, head, operation_id, mutation, *, current=None):
         """Create the exact request identity before submission; retain it for status."""
         if (type(head) is not Head or type(operation_id) is not UUID or operation_id.int == 0
                 or type(mutation) is not Mutation):
             raise ValueError("Invalid operation")
-        with self._open(head) as (_, _, capsule):
+        key_head = head if current is None else current
+        if type(key_head) is not Head or key_head.generation != head.generation:
+            raise WriteRefused("operation_generation_mismatch")
+        with self._open(key_head) as (_, _, capsule):
             binding = self._binding(head, operation_id, mutation, capsule)
         return OperationIdentity(operation_id, head.generation, binding)
 

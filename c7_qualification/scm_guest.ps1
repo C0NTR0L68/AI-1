@@ -1,7 +1,8 @@
 param([Parameter(Mandatory)][Guid] $TransferId,
       [Parameter(Mandatory)][ValidatePattern('^[A-F0-9]{64}$')][string] $SourceManifestSha256,
       [ValidateSet('high','medium')][string] $Profile='high',
-      [switch] $EndToEnd)
+      [switch] $EndToEnd,
+      [switch] $WriteProfile)
 $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
@@ -19,7 +20,8 @@ $bridge = Get-Content -LiteralPath (Join-Path $parcel 'bridge-ready.json') -Raw|
 $ordinary = Get-LocalUser -Name $user
 if($bridge.preflight -ne 42 -or !$ordinary.Enabled -or $ordinary.SID.Value -ne $bridge.sid){exit 67}
 $client = $ordinary.SID
-if ($EndToEnd -and $Profile -ne 'medium') { exit 68 }
+if (($EndToEnd -or $WriteProfile) -and $Profile -ne 'medium') { exit 68 }
+if ($EndToEnd -and $WriteProfile) { exit 69 }
 
 $archive = Join-Path $parcel 'c7-binding.zip'
 if ((Get-FileHash -LiteralPath $archive).Hash -ne '9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500') { exit 64 }
@@ -72,13 +74,19 @@ try {
     $pins = Get-Content -LiteralPath $sourceManifest -Raw|ConvertFrom-Json
     $files = @('scm_service.cs','scm_probe.py','memory_authority_pipe.py')
     if ($EndToEnd) { $files += 'scm_dpapi_e2e.py' }
+    if ($WriteProfile) {
+        $files += @('scm_write_probe.py','memory_service_pipe.py','memory_write_v2.py',
+                    'windows_storage_inspector.py','memory_windows_archive.py')
+    }
     foreach ($file in $files) {
         $input = Join-Path $parcel $file
-        $target = Join-Path $payload $(if($file -eq 'memory_authority_pipe.py'){'app\'+$file}else{'c7_qualification\'+$file})
-        [IO.File]::Copy($input,$target,$false)
+        $isApp=$file -in ('memory_authority_pipe.py','memory_service_pipe.py','memory_write_v2.py',
+                        'windows_storage_inspector.py','memory_windows_archive.py')
+        $target = Join-Path $payload $(if($isApp){'app\'+$file}else{'c7_qualification\'+$file})
+        [IO.File]::Copy($input,$target,($WriteProfile -and $isApp))
         if ((Get-FileHash -LiteralPath $target).Hash -ne $pins.$file) { exit 64 }
     }
-    if ($EndToEnd) {
+    if ($EndToEnd -or $WriteProfile) {
         $dependency = Join-Path $parcel 'dotenv-addon.zip'
         if ((Get-FileHash -LiteralPath $dependency).Hash -ne 'FF8F3C00CAA41A26A3C5328653E55AFF70F079E078518082C50D2A946AEA401E') { exit 64 }
         $deps = Join-Path $payload 'deps'
@@ -133,6 +141,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $archives 'archive.synthetic'),'synthetic archive canary')
     $integrity=if($Profile -eq 'medium'){8192}else{12288}
     $enrollment=@{authority=$authority.Value;client=$client.Value;integrity=$integrity}
+    if($WriteProfile){$enrollment.write_fixture=$true}
     $enrollment|
         ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
@@ -164,6 +173,48 @@ try {
             throw 'Ordinary native identity or process receipt mismatch'
         }
         return $result
+    }
+    if ($WriteProfile) {
+        $phase = 'write-start'
+        [IO.File]::WriteAllBytes((Join-Path $state 'initialize-write'),[byte[]]@())
+        [void](Invoke-Scm @('start',$name))
+        Wait-Status 'Running' 20
+        $first=[int][IO.File]::ReadAllText((Join-Path $state 'ready'))
+        Checkpoint write-start 42
+        $phase = 'write'
+        if ((Invoke-Ordinary write) -ne 42) { throw 'Create/role/stale/replay or storage denial failed' }
+        Checkpoint write 42
+        & $py -I -S -B $probe wrong-peer *> (Join-Path $parcel 'wrong-peer.log')
+        if($LASTEXITCODE -ne 42){throw 'Foreign SID denial failed'}
+        Checkpoint wrong-peer 42
+        [void](Invoke-Scm @('stop',$name))
+        Wait-Status 'Stopped' 15
+        if(Get-Process -Id $first -ErrorAction SilentlyContinue){throw 'First write worker still present'}
+        Checkpoint write-stop 42
+        $phase = 'resume'
+        [void](Invoke-Scm @('start',$name))
+        Wait-Status 'Running' 20
+        $second=[int][IO.File]::ReadAllText((Join-Path $state 'ready'))
+        if($second -eq $first){throw 'No new service worker observed'}
+        [IO.File]::WriteAllBytes((Join-Path $state 'lose-write-ack'),[byte[]]@())
+        if((Invoke-Ordinary resume) -ne 42){throw 'Restarted read or interrupted delete not confirmed'}
+        Wait-Status 'Stopped' 15
+        if(Get-Process -Id $second -ErrorAction SilentlyContinue){throw 'Crashed worker still present'}
+        Checkpoint resume 42
+        $phase = 'verify-write'
+        [void](Invoke-Scm @('start',$name))
+        Wait-Status 'Running' 20
+        $third=[int][IO.File]::ReadAllText((Join-Path $state 'ready'))
+        if($third -in ($first,$second) -or (Invoke-Ordinary verify-write) -ne 42) {
+            throw 'Post-crash receipt or deletion unconfirmed'
+        }
+        Checkpoint verify-write 42
+        [void](Invoke-Scm @('stop',$name))
+        Wait-Status 'Stopped' 15
+        if(Get-Process -Id $third -ErrorAction SilentlyContinue){throw 'Last write worker still present'}
+        Checkpoint write-final-stop 42
+        $complete=$true
+        exit 42
     }
     if ($EndToEnd) {
         $phase = 'archive-enrollment'
