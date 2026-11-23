@@ -98,7 +98,8 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         require(writer.request({**request, "op": "status"}) == committed)
         refuse(writer, {**request, "op": "status", "text": "different"})
         archive = state / "archives" / ("memory-" + committed[2] + ".v2a")
-        for protected in (state / "head.sqlite3", archive, state / "archive-pins.json"):
+        pin_name = "archive-pin.json" if enrollment.get("production_fixture") is True else "archive-pins.json"
+        for protected in (state / "head.sqlite3", archive, state / pin_name):
             try:
                 protected.open("rb").close()
             except PermissionError:
@@ -119,6 +120,9 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
                    "note": note, "revision": revision}
         with (scratch / "pending-delete.json").open("x", encoding="ascii") as output:
             json.dump(request, output)
+        if enrollment.get("production_fixture") is True:
+            require(unpack_head(writer.request(request)).revision == 2)
+            return 42
         if use_http:
             require(local_action(scratch, reader, writer, "delete", request) is None)
             return 42

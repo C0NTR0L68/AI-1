@@ -6,7 +6,8 @@ param(
     [ValidateSet('high','medium')][string] $Profile='high',
     [string] $DotenvArchive,
     [switch] $WriteProfile,
-    [switch] $WriteHttp
+    [switch] $WriteHttp,
+    [string] $ProductionInputs
 )
 $ErrorActionPreference='Stop'
 $parcel='C:\Users\Public\Documents\AI1-C7-'+$TransferId.ToString('N')
@@ -15,6 +16,7 @@ $endToEnd = $DotenvArchive -ne '' -and !$WriteProfile
 if (($endToEnd -or $WriteProfile) -and $Profile -ne 'medium') { throw 'Explicit medium enrollment required' }
 if ($WriteProfile -and !$DotenvArchive) { throw 'Pinned guest requirements archive required' }
 if ($WriteHttp -and !$WriteProfile) { throw 'HTTP requires the semantic write fixture' }
+if ($ProductionInputs -and !$WriteHttp) { throw 'Production binary requires explicit guest qualification' }
 
 function Guest([string] $Body,[string] $Actor='System',[switch] $Encoded){
     $command=if($Encoded){
@@ -84,11 +86,13 @@ if ($endToEnd) { $sourceFiles += 'c7_qualification/scm_dpapi_e2e.py' }
 if ($WriteProfile) { $sourceFiles += @('c7_qualification/scm_write_probe.py','app/memory_service_pipe.py',
                                  'app/memory_write_v2.py','app/windows_storage_inspector.py',
                                  'app/memory_windows_archive.py','app/memory_service_http.py',
-                                 'app/memory_launch_v2.py','app/main.py','app/start.py') }
+                                 'app/memory_launch_v2.py','app/memory_authority_identity.py','app/main.py','app/start.py') }
 if ($WriteHttp) { $sourceFiles += @('c7_qualification/scm_http_probe.py','c7_qualification/scm_recovery_probe.py') }
+if ($ProductionInputs) { $sourceFiles += @('app/memory_authority_service.py','service/Authority.cs') }
 foreach($name in $sourceFiles){
     $sources[$name.Split('/')[-1]]=Upload ($name.Split('/')[-1]) (Read-PinnedSource $name)
 }
+if($ProductionInputs){$sources['inputs.sha256']=Upload 'inputs.sha256' ([IO.File]::ReadAllBytes($ProductionInputs))}
 if ($endToEnd -or $WriteProfile) {
     if ((Get-FileHash -LiteralPath $DotenvArchive).Hash -ne 'FF8F3C00CAA41A26A3C5328653E55AFF70F079E078518082C50D2A946AEA401E') {
         throw 'Dependency pin mismatch'
@@ -115,6 +119,7 @@ $command=(Load-GuestScript 'scm_guest.ps1' $setupHash)+
 if ($endToEnd) { $command += ' -EndToEnd' }
 if ($WriteProfile) { $command += ' -WriteProfile' }
 if ($WriteHttp) { $command += ' -WriteHttp' }
+if ($ProductionInputs) { $command += ' -ProductionBinary' }
 $bridgeBody=(Load-GuestScript 'standard_user_preflight.ps1' $preflightHash)+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -ParcelId '''+$TransferId+''' -Bridge'
 $bridgeCommand='powershell.exe -NoProfile -NonInteractive -Command '+$bridgeBody
@@ -149,11 +154,14 @@ $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
     ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
     profile=$Profile; end_to_end=$endToEnd; write_profile=[bool]$WriteProfile; write_http=[bool]$WriteHttp
+    production_binary=[bool]$ProductionInputs
 }
 $phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
 if($WriteProfile){$phases=@('application-pins','compile','scm-registration','roles','write-start','write','wrong-peer','write-stop','resume','verify-write','write-final-stop','cleanup')}
 if($WriteHttp){$phases+=@('backup','restore-same-profile','profile-location','profile-backup',
                          'profile-missing','profile-copy-back','restore-from-profile-copy')}
+if($ProductionInputs){$phases=@('application-pins','compile','scm-registration','roles','production-enrollment',
+    'write-start','write','wrong-peer','write-stop','resume','verify-write','write-final-stop','production-rollback','cleanup')}
 if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','wrong-generation','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
 foreach($phase in $phases){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
@@ -166,9 +174,26 @@ if($endToEnd -and $result['dpapi-boundary'] -eq 42){
     }
     $result.dpapi_native_error_hex=('{0:X2}{1:X2}{2:X2}{3:X2}' -f $parts[3],$parts[2],$parts[1],$parts[0])
 }
+if($ProductionInputs -and $result.compile -eq 42){
+    $releasePins=[ordered]@{}
+    $fields=@('binary-sha','compiler-sha')
+    if($result['production-enrollment'] -eq 42){$fields+=@('enrollment-sha','launch-sha')}
+    foreach($field in $fields){
+        $digest=''
+        for($offset=0;$offset -lt 64;$offset+=6){
+            $length=[Math]::Min(6,64-$offset)
+            $number=Guest ($prefix+'$s=[IO.File]::ReadAllText((Join-Path $p '''+$field+'.code''));'+
+                'if($s -cnotmatch ''^[A-F0-9]{64}$''){exit 16777216};exit ([Convert]::ToInt32($s.Substring('+ $offset+','+$length+'),16))')
+            if($number -lt 0 -or $number -ge [Math]::Pow(16,$length)){throw 'Malformed guest production digest'}
+            $digest+=$number.ToString('X'+$length)
+        }
+        $releasePins[$field]=$digest
+    }
+    $result.production_sha256=$releasePins
+}
 if($exitCode -ne 42){
     $result.failed_phase_code=Guest ($prefix+'$f=Join-Path $p ''failed-phase.code'';if(!(Test-Path $f)){exit 90};'+
-        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'',''write-start'',''write'',''resume'',''verify-write'',''backup'',''profile-backup'',''profile-missing'',''profile-copy-back'');exit (100+[array]::IndexOf($a,$v))')
+        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'',''write-start'',''write'',''resume'',''verify-write'',''backup'',''profile-backup'',''profile-missing'',''profile-copy-back'',''production-enrollment'',''production-rollback'');exit (100+[array]::IndexOf($a,$v))')
     $result.diagnostic_code=Guest ($prefix+'$f=Join-Path $p ''failure.log'';if(!(Test-Path $f)){exit 90};$s=Get-Content $f -Raw;'+
         'if($s -match ''SCM operation failed with exit (\d+)''){exit [int]$Matches[1]};'+
         'if($s -match ''binary path or account''){exit 91};if($s -match ''did not confirm restricted''){exit 92};'+

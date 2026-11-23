@@ -108,7 +108,7 @@ def prove_scm_denials():
         require(close(manager))
 
 
-def register_fixture():
+def register_fixture(*, production=False):
     _, adv = _windows_apis()
     open_manager = bind(adv, "OpenSCManagerW", W.HANDLE, W.LPCWSTR, W.LPCWSTR, W.DWORD)
     create = bind(adv, "CreateServiceW", W.HANDLE, W.HANDLE, W.LPCWSTR, W.LPCWSTR,
@@ -122,7 +122,8 @@ def register_fixture():
         raise ctypes.WinError(ctypes.get_last_error())
     try:
         name = "AI1MemoryAuthority"
-        service = create(manager, name, name, 0x10002, 16, 3, 1, f'"{ROOT / "Authority.exe"}"',
+        executable = (ROOT / "service-release" if production else ROOT) / "Authority.exe"
+        service = create(manager, name, name, 0x10002, 16, 3, 1, f'"{executable}"',
                          None, None, None, "NT SERVICE\\" + name, None)
         if not service:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -148,14 +149,26 @@ def main():
             and re.fullmatch(r"AI1-C7-[a-f0-9]{32}", ROOT.name))
     phase, = sys.argv[1:]
     facts = token_facts()
-    if phase == "register":
+    if phase in ("register", "register-production"):
         require(facts["sid"] == "S-1-5-18")
-        register_fixture()
+        register_fixture(production=phase == "register-production")
+        return 42
+    if phase == "pin-production-state":
+        require(facts["sid"] == "S-1-5-18")
+        from app.windows_storage_inspector import inspect_component
+        target = ROOT / "service-data" / "authority"
+        chain = (*reversed(target.parents), target)
+        pins = [inspect_component(str(path), expected_kind="directory").identity for path in chain]
+        print(json.dumps([[pin.volume, pin.native_id.hex()] for pin in pins]))
         return 42
     enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
     if enrollment.get("write_fixture") is True:
         from c7_qualification.scm_write_probe import open_probe
         scratch = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
+        if enrollment.get("production_fixture") is True:
+            if phase == "write":
+                prove_scm_denials()
+            return open_probe(phase, ROOT, ROOT / "service-data" / "authority", scratch, facts, enrollment, GENERATION)
         return open_probe(phase, ROOT, STATE, scratch, facts, enrollment, GENERATION)
     dpapi = enrollment.get("dpapi")
     revision = int(dpapi is not None)

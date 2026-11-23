@@ -3,7 +3,8 @@ param([Parameter(Mandatory)][Guid] $TransferId,
       [ValidateSet('high','medium')][string] $Profile='high',
       [switch] $EndToEnd,
       [switch] $WriteProfile,
-      [switch] $WriteHttp)
+      [switch] $WriteHttp,
+      [switch] $ProductionBinary)
 $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
@@ -24,6 +25,7 @@ $client = $ordinary.SID
 if (($EndToEnd -or $WriteProfile) -and $Profile -ne 'medium') { exit 68 }
 if ($EndToEnd -and $WriteProfile) { exit 69 }
 if ($WriteHttp -and !$WriteProfile) { exit 69 }
+if ($ProductionBinary -and !$WriteHttp) { exit 69 }
 
 $archive = Join-Path $parcel 'c7-binding.zip'
 if ((Get-FileHash -LiteralPath $archive).Hash -ne '9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500') { exit 64 }
@@ -79,14 +81,15 @@ try {
     if ($WriteProfile) {
         $files += @('scm_write_probe.py','memory_service_pipe.py','memory_write_v2.py',
                     'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py',
-                    'memory_launch_v2.py','main.py','start.py')
+                    'memory_launch_v2.py','memory_authority_identity.py','main.py','start.py')
     }
     if ($WriteHttp) { $files += @('scm_http_probe.py','scm_recovery_probe.py') }
+    if ($ProductionBinary) { $files += 'memory_authority_service.py' }
     foreach ($file in $files) {
         $input = Join-Path $parcel $file
         $isApp=$file -in ('memory_authority_pipe.py','memory_service_pipe.py','memory_write_v2.py',
                         'windows_storage_inspector.py','memory_windows_archive.py','memory_service_http.py',
-                        'memory_launch_v2.py','main.py','start.py')
+                        'memory_launch_v2.py','memory_authority_identity.py','memory_authority_service.py','main.py','start.py')
         $target = Join-Path $payload $(if($isApp){'app\'+$file}else{'c7_qualification\'+$file})
         [IO.File]::Copy($input,$target,($WriteProfile -and $isApp))
         if ((Get-FileHash -LiteralPath $target).Hash -ne $pins.$file) { exit 64 }
@@ -117,15 +120,42 @@ try {
     $phase = 'compile'
     $exe = Join-Path $root 'Authority.exe'
     $compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-    & $compiler /nologo /target:exe /reference:System.ServiceProcess.dll "/out:$exe" (Join-Path $payload 'c7_qualification\scm_service.cs') *> (Join-Path $parcel 'compile.log')
+    if ($ProductionBinary) {
+        $prod=Join-Path $root 'service-release'
+        Protect-Directory $prod @(@{sid=$system;access='FullControl'})
+        $exe=Join-Path $prod 'Authority.exe'
+        $launcher=Join-Path $root 'Authority.cs'
+        [IO.File]::Copy((Join-Path $parcel 'Authority.cs'),$launcher,$false)
+        if((Get-FileHash -LiteralPath $launcher).Hash -ne $pins.'Authority.cs'){exit 64}
+        $prodInputs=Join-Path $prod 'inputs.sha256'
+        [IO.File]::Copy((Join-Path $parcel 'inputs.sha256'),$prodInputs,$false)
+        if((Get-FileHash -LiteralPath $prodInputs).Hash -cne $pins.'inputs.sha256'){exit 64}
+        foreach($entry in [IO.File]::ReadAllLines($prodInputs)){
+            if($entry -cnotmatch '^([A-F0-9]{64}) (payload/(?:runtime/python|app)/[a-zA-Z0-9_./+\-]+)$' -or
+               $entry.Contains('..')){exit 64}
+            $member=$Matches[2]
+            $source=Join-Path $root $member
+            if((Get-FileHash -LiteralPath $source).Hash -cne $Matches[1]){exit 64}
+            $target=Join-Path $prod $member
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+            [IO.File]::Copy($source,$target,$false)
+        }
+        $embedded=Join-Path $root 'AuthorityPins.cs'
+        [IO.File]::WriteAllText($embedded,('internal static class AuthorityPins { internal const string ManifestSha256 = "'+
+            $pins.'inputs.sha256'+'"; }'),[Text.Encoding]::ASCII)
+        & $compiler /nologo /platform:x64 /optimize+ /target:exe /reference:System.ServiceProcess.dll "/out:$exe" $launcher $embedded *> (Join-Path $parcel 'compile.log')
+    } else {
+        & $compiler /nologo /target:exe /reference:System.ServiceProcess.dll "/out:$exe" (Join-Path $payload 'c7_qualification\scm_service.cs') *> (Join-Path $parcel 'compile.log')
+    }
     if ($LASTEXITCODE -ne 0) { throw "Guest C# compiler exit $LASTEXITCODE" }
     Checkpoint compile 42
     Checkpoint binary-sha (Get-FileHash -LiteralPath $exe).Hash
+    if($ProductionBinary){Checkpoint compiler-sha (Get-FileHash -LiteralPath $compiler).Hash}
     $phase = 'create-roles'
     $py=Join-Path $payload 'runtime\python\python.exe'
     $probe=Join-Path $payload 'c7_qualification\scm_probe.py'
     $ErrorActionPreference='Continue'
-    & $py -I -S -B $probe register *> (Join-Path $parcel 'registration.log')
+    & $py -I -S -B $probe $(if($ProductionBinary){'register-production'}else{'register'}) *> (Join-Path $parcel 'registration.log')
     $registration=$LASTEXITCODE
     $ErrorActionPreference='Stop'
     if ($registration -ne 42) { throw "SCM native registration exit $registration" }
@@ -148,6 +178,7 @@ try {
     $enrollment=@{authority=$authority.Value;client=$client.Value;integrity=$integrity}
     if($WriteProfile){$enrollment.write_fixture=$true}
     if($WriteHttp){$enrollment.http_fixture=$true}
+    if($ProductionBinary){$enrollment.production_fixture=$true}
     $enrollment|
         ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
@@ -179,6 +210,63 @@ try {
             throw 'Ordinary native identity or process receipt mismatch'
         }
         return $result
+    }
+    if ($ProductionBinary) {
+        $phase='production-enrollment'
+        Protect-Directory $prod @($rule,@{sid=$authority;access='ReadAndExecute'})
+        $serviceData=Join-Path $root 'service-data'
+        Protect-Directory $serviceData @($rule,@{sid=$authority;access='ReadAndExecute'})
+        $live=Join-Path $serviceData 'authority'
+        Protect-Directory $live @($rule,@{sid=$authority;access='Modify'})
+        $statePins=& $py -I -S -B $probe pin-production-state
+        if($LASTEXITCODE -ne 42){throw 'Unable to pin authority NTFS chain'}
+        $configuration=Join-Path $prod 'authority-enrollment.json'
+        $plan=@{version=1;generation='635f83dd-3bb7-4041-b4c8-7d39cb25d13a';state=$live;
+                pins=($statePins|ConvertFrom-Json);reader_sid=$client.Value;writer_sid=$client.Value;
+                client_integrity=$integrity;receipt_budget=8}
+        $plan|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $configuration -Encoding ascii
+        Checkpoint enrollment-sha (Get-FileHash -LiteralPath $configuration).Hash
+        [IO.File]::WriteAllText((Join-Path $parcel 'launch-config.txt'),($configured.ImagePath+" | "+$configured.ObjectName+
+            " | SIDTYPE=3 | -I -S -B | serve, provision"))
+        Checkpoint launch-sha (Get-FileHash -LiteralPath (Join-Path $parcel 'launch-config.txt')).Hash
+        Checkpoint production-enrollment 42
+        $phase='write-start'
+        [void](Invoke-Scm @('start',$name,'provision'))
+        Wait-Status 'Running' 20
+        Checkpoint write-start 42
+        $phase='write'
+        if((Invoke-Ordinary write)-ne 42){throw 'Compiled service write not confirmed'}
+        Checkpoint write 42
+        & $py -I -S -B $probe wrong-peer *> (Join-Path $parcel 'wrong-peer.log')
+        if($LASTEXITCODE -ne 42){throw 'Compiled service accepted wrong SID'}
+        Checkpoint wrong-peer 42
+        [void](Invoke-Scm @('stop',$name))
+        Wait-Status 'Stopped' 20
+        Checkpoint write-stop 42
+        $phase='resume'
+        [void](Invoke-Scm @('start',$name))
+        Wait-Status 'Running' 20
+        if((Invoke-Ordinary resume)-ne 42){throw 'Compiled service restart/read/delete not confirmed'}
+        Checkpoint resume 42
+        if((Invoke-Ordinary verify-write)-ne 42){throw 'Compiled service receipt not confirmed'}
+        Checkpoint verify-write 42
+        [void](Invoke-Scm @('stop',$name))
+        Wait-Status 'Stopped' 20
+        Checkpoint write-final-stop 42
+        $phase='production-rollback'
+        $durable=@{}
+        foreach($file in Get-ChildItem -LiteralPath $live -Recurse -File){
+            $durable[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName).Hash
+        }
+        [void](Invoke-Scm @('delete',$name))
+        if(Get-Service -Name $name -ErrorAction SilentlyContinue){throw 'SCM configuration rollback failed'}
+        $created=$false
+        foreach($file in $durable.Keys){
+            if((Get-FileHash -LiteralPath $file).Hash -ne $durable[$file]){throw 'Rollback changed durable data'}
+        }
+        Checkpoint production-rollback 42
+        $complete=$true
+        exit 42
     }
     if ($WriteProfile) {
         $phase = 'write-start'
