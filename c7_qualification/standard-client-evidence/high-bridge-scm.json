@@ -1,0 +1,27 @@
+{
+  "revision": "ddf68cba51447390b582b8f591f4bc8055cffbf8",
+  "guest_exit": 42,
+  "source_sha256": {
+    "scm_service.cs": "FAAD1B9D24D1D1E96582BE8B40B8E2BFF7FD28801DECC8E38696E61AC4854959",
+    "scm_probe.py": "2C6EC0CC8E33201B07DD1EDEE8B2890982F277E489E92FC0A8F506DDD55CC92A",
+    "memory_authority_pipe.py": "C95237E3AABF717D43B6ECE71D47C787ADC8E9CB0E47CCEF760AACC7C9E70590"
+  },
+  "guest_script_sha256": "7AA095066D1DECF9C9F6BA97FFC3CED8F4039F4EC4927CEA98A132E318143C85",
+  "guest_source_manifest_sha256": "91011A88F7FCA815FDDBBCFD13EE2836AD6E61845FB0D73D7BE552A81093C674",
+  "ordinary_bridge_sha256": "E7DBEEF7BDAFF2E0F66C2477FBAE5A088A51EB244AF7F09D761BDCAF210503B2",
+  "ordinary_bridge_exit": 42,
+  "compile": 42,
+  "scm-registration": 42,
+  "roles": 42,
+  "provision": 42,
+  "ordinary-preflight": 42,
+  "start": 42,
+  "ipc": 65,
+  "client-unqualified": null,
+  "stop": 42,
+  "restart": 42,
+  "crash": 42,
+  "storage-denials": 42,
+  "recovery": 42,
+  "cleanup": 42
+}

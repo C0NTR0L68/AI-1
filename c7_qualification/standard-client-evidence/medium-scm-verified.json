@@ -1,0 +1,32 @@
+{
+  "revision": "55f003f7aa5276f544daa03598151b36bc654325",
+  "guest_exit": 42,
+  "source_sha256": {
+    "scm_service.cs": "FAAD1B9D24D1D1E96582BE8B40B8E2BFF7FD28801DECC8E38696E61AC4854959",
+    "scm_probe.py": "418A65C923D48F361434EEC0AB445F3CAFC5C674F306264972283E87EA89DE54",
+    "memory_authority_pipe.py": "45809061ACAE7192168D1C43CDB0ADB380828F6E7F4265171C3E2178B33CF9D4"
+  },
+  "guest_script_sha256": "5BC91A363BC458D55448A7871A9CDDA5772196CDCE70CABF367CAC94AB5CBF1C",
+  "guest_source_manifest_sha256": "BD8040A06C6040C4D0CBF140363933CBE37146AED64E8E49E30EB9CF78A613D2",
+  "ordinary_bridge_sha256": "82AC57753B8CBF7E09EE8B1CE456FA7E1BAD6CA58FE9583BF295ECBE3F610DF2",
+  "ordinary_bridge_exit": 42,
+  "profile": "medium",
+  "compile": 42,
+  "scm-registration": 42,
+  "roles": 42,
+  "provision": 42,
+  "ordinary-preflight": 42,
+  "start": 42,
+  "ipc": 42,
+  "client-unqualified": null,
+  "wrong-peer": 42,
+  "dropped": 42,
+  "ipc-recovered": 42,
+  "stop": 42,
+  "counterfeit": 42,
+  "restart": 42,
+  "crash": 42,
+  "storage-denials": 42,
+  "recovery": 42,
+  "cleanup": 42
+}

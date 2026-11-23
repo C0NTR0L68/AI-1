@@ -1,0 +1,8 @@
+{
+  "guest_exit": 1,
+  "source_sha256": "305CD3F88E3A7CC9C4FDF76D43AEBA4A67EE2D8F3E349DED1EFF62D8D586A1D0",
+  "account": 42,
+  "local_logon": 42,
+  "ordinary_process": 91,
+  "cleanup": 42
+}

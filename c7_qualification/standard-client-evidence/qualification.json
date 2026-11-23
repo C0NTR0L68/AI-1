@@ -1,0 +1,42 @@
+{
+  "cas_writes": "OFF",
+  "high_ipc_for_medium_token": "FAIL_WIN32_5",
+  "medium_read_only_scm": "PASS",
+  "memory_v2": "OFF",
+  "native_medium_checkpoints": [
+    "compile",
+    "scm-registration",
+    "roles",
+    "provision",
+    "ordinary-preflight",
+    "start",
+    "ipc",
+    "wrong-peer",
+    "dropped",
+    "ipc-recovered",
+    "stop",
+    "counterfeit",
+    "restart",
+    "crash",
+    "storage-denials",
+    "recovery",
+    "cleanup"
+  ],
+  "native_medium_revision": "55f003f7aa5276f544daa03598151b36bc654325",
+  "ordinary_preflight": "PASS",
+  "production": "NO-GO",
+  "production_deployment": "NOT_RUN",
+  "sha256": {
+    "cleanup.json": "E7F9B60E7509C123D451F550BC92504C3F2710FE835D932857E91AA7FC1A828A",
+    "high-bridge-scm.json": "97D962F7A11B3A994107BD202C2AEB4F5558C85F03CF9DBCF8421CAD9CC97945",
+    "high-scm.json": "C388078FB24EEDF276075D0F0FFEF0CDB0C8673318FE96BD3896F218465E1E7E",
+    "isolation.json": "7241E62BD5C9479B73CF57E6BD9337072A2384584B465CE3FC5E32D872099D85",
+    "medium-scm-verified.json": "A01613E59A6EB0A4A04C200F5E5C26CEB98DAC84059F94B3A403833ED9707982",
+    "medium-scm.json": "553C229902ED2A884D32F40BA4F6C53C1498B06111DC6B3ED59E221EB284CD97",
+    "medium-storage-line.json": "15F0F161F01E484C909AD0A2ADA3FD0C8726DDF33A25ADD73F52F7F5D62F961B",
+    "preflight-existing-login-error.json": "82D9AE93D1D02A6AFEDE727E825219DFBEAB67C397FB39F95290AE4F4E33200A",
+    "preflight-existing-login.json": "1BC2F1DB262CBB24A73D3FBE739075850E4EE0D88BC0C65BA888D964D53DEB1E",
+    "preflight-retry.json": "226AC0D8F3C7F4BF295E0111247CCC19D0531333B26613C8B77287228F2F4597",
+    "transfer.log": "DC2554114FBFBB5395B2703592A4BC41A76EA5BAD88D40FB974ACC267DCC71B0"
+  }
+}
