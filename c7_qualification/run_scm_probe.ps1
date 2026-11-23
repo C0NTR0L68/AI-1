@@ -58,12 +58,43 @@ $setupHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($setu
 $setup64=[Convert]::ToBase64String($setup)
 $command='$ErrorActionPreference=''Stop'';$bytes=[Convert]::FromBase64String('''+$setup64+''');'+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''''
-$exitCode=Guest $command
+$preflight=Read-PinnedSource 'c7_qualification/standard_user_preflight.ps1'
+$preflightHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($preflight))
+$preflight64=[Convert]::ToBase64String($preflight)
+$bridgeBody='$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+
+    $preflight64+''')));& $s -ParcelId '''+$TransferId+''' -Bridge'
+$bridgeCommand='powershell.exe -NoProfile -NonInteractive -Command '+$bridgeBody
+$job=Start-ThreadJob -ArgumentList $SandboxId,$bridgeCommand -ScriptBlock {
+    param($sid,$line)
+    $reply=wsb exec --id $sid --run-as ExistingLogin --command $line --raw
+    if($LASTEXITCODE -ne 0){throw 'Bridge guest command failed'}
+    return [int]($reply|ConvertFrom-Json).ExitCode
+}
+$prefix='$ErrorActionPreference=''Stop'';$p='''+$parcel+''';'
+$bridgeExit=$null
+try {
+    $attested=$false
+    for($attempt=0;$attempt -lt 8;$attempt++){
+        if($job.State -in 'Completed','Failed'){break}
+        if((Guest ($prefix+'if(Test-Path -LiteralPath (Join-Path $p ''bridge-ready.json'')){exit 42};exit 90') ExistingLogin) -eq 42){
+            $attested=$true
+            break
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    if(!$attested){throw 'Verified ordinary bridge did not become ready'}
+    $exitCode=Guest $command
+} finally {
+    [void](Guest ($prefix+'[IO.File]::WriteAllBytes((Join-Path $p ''bridge-done''),[byte[]]@());exit 42') ExistingLogin)
+    if(!(Wait-Job -Job $job -Timeout 20)){throw 'Ordinary launch bridge cleanup unconfirmed'}
+    $bridgeExit=Receive-Job -Job $job
+    Remove-Job -Job $job
+}
 
 $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
+    ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
 }
-$prefix='$ErrorActionPreference=''Stop'';$p='''+$parcel+''';'
 foreach($phase in 'compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','stop','restart','crash','storage-denials','recovery','cleanup'){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
     $result[$phase]=if($code -ne 90){$code}else{$null}
@@ -77,5 +108,5 @@ if($exitCode -ne 42){
         'if($s -match ''Guest C\# compiler exit (\d+)''){exit (100+[int]$Matches[1])};exit 99')
 }
 $result|ConvertTo-Json -Depth 6|Tee-Object -FilePath $Evidence
-if($exitCode -ne 42){exit 1}
+if($exitCode -ne 42 -or $bridgeExit -ne 42){exit 1}
 exit 0

@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][Guid] $ParcelId)
+param([Parameter(Mandatory)][Guid] $ParcelId,[switch] $Bridge)
 $ErrorActionPreference='Stop'
 $id=[Security.Principal.WindowsIdentity]::GetCurrent()
 if ($id.IsSystem -or (whoami) -notmatch '\\wdagutilityaccount$'){exit 61}
@@ -6,8 +6,12 @@ if ((Test-Path '\\tsclient\C') -or (Test-Path '\\tsclient\D')){exit 62}
 if (@([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()|Where-Object{
     $_.OperationalStatus -eq 'Up' -and $_.NetworkInterfaceType -ne 'Loopback'}).Count){exit 63}
 $root=Join-Path 'C:\Users\Public\Documents' ('AI1-C7-'+$ParcelId.ToString('N'))
-if(Test-Path -LiteralPath $root){exit 64}
-[void][IO.Directory]::CreateDirectory($root)
+if($Bridge){
+    if(!(Test-Path -LiteralPath (Join-Path $root 'c7-binding.zip'))){exit 64}
+} else {
+    if(Test-Path -LiteralPath $root){exit 64}
+    [void][IO.Directory]::CreateDirectory($root)
+}
 $name='AI1C7OrdinaryProbe'
 if(Get-LocalUser -Name $name -ErrorAction SilentlyContinue){exit 65}
 
@@ -98,11 +102,29 @@ public static class Ai1StandardGuest
     {
         string home=Environment.GetFolderPath(Environment.SpecialFolder.System);
         string pythonless=System.IO.Path.Combine(home,@"WindowsPowerShell\v1.0\powershell.exe");
-        var line=new StringBuilder("\"" + pythonless + "\" -NoLogo -NoProfile -NonInteractive -Command exit 42");
+        return LaunchVerified(user,domain,password,sid,pythonless,
+            " -NoLogo -NoProfile -NonInteractive -Command exit 42",home);
+    }
+
+    public static int LaunchFixture(string user,string domain,IntPtr password,string sid,string parcel,string kind)
+    {
+        if(!System.Text.RegularExpressions.Regex.IsMatch(parcel,@"\AAI1-C7-[a-f0-9]{32}\z")
+            || (kind!="ipc" && kind!="denied" && kind!="counterfeit" && kind!="dropped" && kind!="wrong-peer")) return 78;
+        string root=System.IO.Path.Combine(@"C:\Program Files",parcel,"payload");
+        string python=System.IO.Path.Combine(root,@"runtime\python\python.exe");
+        string probe=System.IO.Path.Combine(root,@"c7_qualification\scm_probe.py");
+        string cwd=System.IO.Path.Combine(@"C:\Users\Public\Documents",parcel,"ordinary");
+        return LaunchVerified(user,domain,password,sid,python," -I -S -B \"" + probe + "\" " + kind,cwd);
+    }
+
+    private static int LaunchVerified(string user,string domain,IntPtr password,string sid,
+                                      string executable,string args,string home)
+    {
+        var line=new StringBuilder("\"" + executable + "\"" + args);
         var startup=new Startup();
         startup.size=Marshal.SizeOf(typeof(Startup));
         Child child;
-        if(!CreateProcessWithLogonW(user,domain,password,1,pythonless,line,0x08000004,
+        if(!CreateProcessWithLogonW(user,domain,password,1,executable,line,0x08000004,
                                    IntPtr.Zero,home,ref startup,out child))
             return 30000 + Marshal.GetLastWin32Error();
         bool completed=false;
@@ -142,6 +164,25 @@ try {
     try {
         $result.local_logon=[Ai1StandardGuest]::VerifyCredentials($name,$env:COMPUTERNAME,$memory,$userSid)
         $result.ordinary_process=[Ai1StandardGuest]::Launch($name,$env:COMPUTERNAME,$memory,$userSid)
+        if($Bridge -and $result.ordinary_process -eq 42 -and $result.local_logon -eq 42){
+            @{sid=$userSid;preflight=42}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'bridge-ready.json') -Encoding ascii
+            $deadline=[DateTime]::UtcNow.AddMinutes(4)
+            $stop=Join-Path $root 'bridge-done'
+            while(!(Test-Path -LiteralPath $stop)){
+                if([DateTime]::UtcNow -gt $deadline){throw 'Synthetic bridge deadline'}
+                foreach($phase in 'ipc','denied','counterfeit','dropped','wrong-peer'){
+                    $request=Join-Path $root ($phase+'.request')
+                    $reply=Join-Path $root ($phase+'.reply')
+                    if((Test-Path -LiteralPath $request) -and !(Test-Path -LiteralPath $reply)){
+                        $value=[Ai1StandardGuest]::LaunchFixture($name,$env:COMPUTERNAME,$memory,$userSid,
+                                                                 (Split-Path -Leaf $root),$phase)
+                        [IO.File]::WriteAllText($reply,[string]$value)
+                    }
+                }
+                Start-Sleep -Milliseconds 150
+            }
+            $result.bridge_closed=42
+        }
     } finally {
         [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($memory)
         $password.Dispose()
@@ -156,5 +197,5 @@ try {
     if(!(Get-LocalUser -Name $name -ErrorAction SilentlyContinue)){$result.cleanup=42}
     $result|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'standard-preflight.json') -Encoding ascii
 }
-if($result.ordinary_process -eq 42 -and $result.cleanup -eq 42){exit 42}
+if($result.ordinary_process -eq 42 -and $result.cleanup -eq 42 -and (!$Bridge -or $result.bridge_closed -eq 42)){exit 42}
 exit 1

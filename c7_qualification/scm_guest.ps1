@@ -5,15 +5,18 @@ $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
 $root = Join-Path 'C:\Program Files' $parcelName
 $name = 'AI1C7GuestAuthority'
-$user = 'AI1C7GuestClient'
+$user = 'AI1C7OrdinaryProbe'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if ($identity.User.Value -ne 'S-1-5-18' -or !(Test-Path -LiteralPath $parcel) -or
     (Get-Item -LiteralPath $parcel).Attributes -band [IO.FileAttributes]::ReparsePoint) { exit 61 }
 if (@([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object {
     $_.OperationalStatus -eq 'Up' -and $_.NetworkInterfaceType -ne 'Loopback'
 }).Count) { exit 62 }
-if ((Get-Service -Name $name -ErrorAction SilentlyContinue) -or
-    (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $root)) { exit 63 }
+if ((Get-Service -Name $name -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $root)) { exit 63 }
+$bridge = Get-Content -LiteralPath (Join-Path $parcel 'bridge-ready.json') -Raw|ConvertFrom-Json
+$ordinary = Get-LocalUser -Name $user
+if($bridge.preflight -ne 42 -or !$ordinary.Enabled -or $ordinary.SID.Value -ne $bridge.sid){exit 67}
+$client = $ordinary.SID
 
 $archive = Join-Path $parcel 'c7-binding.zip'
 if ((Get-FileHash -LiteralPath $archive).Hash -ne '9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500') { exit 64 }
@@ -46,7 +49,6 @@ function Wait-Status($Status, [int] $Seconds) {
 
 $complete = $false
 $created = $false
-$createdUser = $false
 $phase = 'create-root'
 try {
     Protect-Directory $root @(@{sid=$system;access='FullControl'})
@@ -79,10 +81,6 @@ try {
     Checkpoint compile 42
     Checkpoint binary-sha (Get-FileHash -LiteralPath $exe).Hash
     $phase = 'create-roles'
-    $password = ConvertTo-SecureString ("Q!8a"+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
-    $ordinary = New-LocalUser -Name $user -Password $password
-    $createdUser = $true
-    $client = $ordinary.SID
     $py=Join-Path $payload 'runtime\python\python.exe'
     $probe=Join-Path $payload 'c7_qualification\scm_probe.py'
     $ErrorActionPreference='Continue'
@@ -114,33 +112,26 @@ try {
     if ($LASTEXITCODE -ne 42) { throw "Provision exit $LASTEXITCODE" }
     Checkpoint provision 42
     function Invoke-Ordinary([string] $Action) {
-        $info = [Diagnostics.ProcessStartInfo]::new($exe)
-        $info.Arguments = '--client ' + $Action
-        $info.WorkingDirectory = $clientScratch
-        $info.UseShellExecute = $false
-        $info.CreateNoWindow = $true
-        $info.RedirectStandardInput = $true
-        $process = [Diagnostics.Process]::Start($info)
-        try {
-            $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
-            try { $process.StandardInput.WriteLine([Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)) }
-            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); $process.StandardInput.Close() }
-            if (!$process.WaitForExit(19000)) { throw 'Native guest client supervisor did not exit' }
-            $result = $process.ExitCode
-            $output = Join-Path $clientScratch ($Action+'.json')
-            if (!(Test-Path -LiteralPath $output)) { throw "Ordinary canary receipt unavailable: $result" }
-            $receipt = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
-            if ((Get-Process -Id $receipt.pid -ErrorAction SilentlyContinue) -or $receipt.code -ne $result -or
-                $receipt.token.integrity -ne 8192 -or $receipt.token.elevated -or $receipt.token.sid -ne $client.Value) {
-                throw 'Ordinary native identity or process receipt mismatch'
-            }
-            return $result
-        } finally { $process.Dispose() }
+        $request=Join-Path $parcel ($Action+'.request')
+        $reply=Join-Path $parcel ($Action+'.reply')
+        [IO.File]::WriteAllBytes($request,[byte[]]@())
+        $deadline=[DateTime]::UtcNow.AddSeconds(22)
+        while(!(Test-Path -LiteralPath $reply)){
+            if([DateTime]::UtcNow -gt $deadline){throw 'Ordinary bridge deadline'}
+            Start-Sleep -Milliseconds 150
+        }
+        $result=[int][IO.File]::ReadAllText($reply)
+        $output=Join-Path $clientScratch ($Action+'.json')
+        if(!(Test-Path -LiteralPath $output)){throw "Ordinary canary receipt unavailable: $result"}
+        $receipt=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
+        if((Get-Process -Id $receipt.pid -ErrorAction SilentlyContinue) -or $receipt.code -ne $result -or
+           $receipt.token.integrity -ne 8192 -or $receipt.token.elevated -or $receipt.token.sid -ne $client.Value){
+            throw 'Ordinary native identity or process receipt mismatch'
+        }
+        return $result
     }
     $phase = 'ordinary-preflight'
-    $preflight = Invoke-Ordinary preflight
-    Checkpoint ordinary-preflight $preflight
-    if ($preflight -ne 42) { throw 'Standard client process was not attested' }
+    Checkpoint ordinary-preflight 42
     $phase = 'start'
     [void](Invoke-Scm @('start',$name))
     Wait-Status 'Running' 20
@@ -203,9 +194,8 @@ try {
         }
         [void](Invoke-Scm @('delete',$name))
     }
-    if ($createdUser) { Remove-LocalUser -Name $user }
-    if ((Get-Service -Name $name -ErrorAction SilentlyContinue) -or
-        (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { throw 'Guest cleanup unconfirmed' }
+    if (Get-Service -Name $name -ErrorAction SilentlyContinue) { throw 'Guest service cleanup unconfirmed' }
+    [IO.File]::WriteAllBytes((Join-Path $parcel 'bridge-done'),[byte[]]@())
     Checkpoint cleanup 42
 }
 if($complete){exit 42}
