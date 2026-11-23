@@ -116,7 +116,15 @@ def enrollment(kernel, sid):
 
 
 def _pins(data):
-    return tuple(FileIdentity(volume, bytes.fromhex(native)) for volume, native in data)
+    require(type(data) is list and 1 <= len(data) <= 32)
+    pins = []
+    for record in data:
+        require(type(record) is dict and record.keys() == {"volume", "file_id"}
+                and type(record["volume"]) is str and type(record["file_id"]) is str
+                and re.fullmatch("[0-9a-f]{32}", record["file_id"]))
+        pins.append(FileIdentity(record["volume"], bytes.fromhex(record["file_id"])))
+    require(len(set(pins)) == len(pins) and len({pin.volume for pin in pins}) == 1)
+    return tuple(pins)
 
 
 @contextmanager
@@ -150,7 +158,7 @@ def run_worker(action):
                 require(create(str(archive_dir), attrs))
             archive_id = inspect_component(str(archive_dir), expected_kind="directory").identity
             with metadata.open("x", encoding="ascii") as output:
-                json.dump([archive_id.volume, archive_id.native_id.hex()], output)
+                json.dump({"volume": archive_id.volume, "file_id": archive_id.native_id.hex()}, output)
                 output.flush()
                 os.fsync(output.fileno())
         else:

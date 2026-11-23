@@ -159,7 +159,7 @@ def main():
         target = ROOT / "service-data" / "authority"
         chain = (*reversed(target.parents), target)
         pins = [inspect_component(str(path), expected_kind="directory").identity for path in chain]
-        print(json.dumps([[pin.volume, pin.native_id.hex()] for pin in pins]))
+        print(json.dumps({"pins": [{"volume": pin.volume, "file_id": pin.native_id.hex()} for pin in pins]}))
         return 42
     enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
     if enrollment.get("write_fixture") is True:

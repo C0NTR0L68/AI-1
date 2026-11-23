@@ -222,7 +222,7 @@ try {
         if($LASTEXITCODE -ne 42){throw 'Unable to pin authority NTFS chain'}
         $configuration=Join-Path $prod 'authority-enrollment.json'
         $plan=@{version=1;generation='635f83dd-3bb7-4041-b4c8-7d39cb25d13a';state=$live;
-                pins=($statePins|ConvertFrom-Json);reader_sid=$client.Value;writer_sid=$client.Value;
+                pins=($statePins|ConvertFrom-Json).pins;reader_sid=$client.Value;writer_sid=$client.Value;
                 client_integrity=$integrity;receipt_budget=8}
         $plan|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $configuration -Encoding ascii
         Checkpoint enrollment-sha (Get-FileHash -LiteralPath $configuration).Hash
