@@ -62,7 +62,7 @@ exit $LASTEXITCODE
             Replace('__PROBE__',$pins['c7_qualification/cas_write_guest.py']).Replace('__CORE__',$pins['app/memory_write_v2.py'])
         # Use an encoded inner script so the guest process receives PowerShell syntax verbatim.
         $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
-        $result[$phase]=Guest ('& powershell.exe -NoProfile -NonInteractive -EncodedCommand '+$encoded)
+        $result[$phase]=Guest ('& powershell.exe -NoProfile -NonInteractive -EncodedCommand '+$encoded+';exit $LASTEXITCODE')
         if($result[$phase] -ne $(if($phase -eq 'restart'){43}else{42})){throw "Native CAS phase $phase failed"}
     }
 } finally {
