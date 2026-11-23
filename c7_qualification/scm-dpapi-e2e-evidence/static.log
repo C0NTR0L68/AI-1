@@ -1,0 +1,7 @@
+Python AST: PASS (scm_probe.py, scm_dpapi_e2e.py)
+PowerShell AST: PASS (SCM runner, guest, standard bridge)
+High default integrity RID 12288 confirmed directly from byte-identical Git source
+Implicit medium rejected before guest operation PASS
+Initial host preflight: raw CRLF checkout differs from pinned Git bytes. Blocked before guest execution.
+First guest test: halted at Windows NTFS archive ancestor inspection. See preserved native result.
+Original app and frozen test Git blobs unchanged since 9e581893
