@@ -189,6 +189,8 @@ def main():
         return 42
     require(facts["sid"] == enrollment["client"] and facts["integrity"] == 8192
             and not facts["elevated"] and facts["sid"] != enrollment["authority"])
+    if phase == "preflight":
+        return 42
     if phase == "ipc":
         client = PipeAuthorityClient(ROOT.name, server_sid=enrollment["authority"],
                                      client_sid=enrollment["client"])
@@ -228,13 +230,13 @@ if __name__ == "__main__":
     ordinary = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     try:
         result = main()
-        if attempt in ("ipc", "denied"):
+        if attempt in ("preflight", "ipc", "denied"):
             (ordinary / (attempt + ".json")).write_text(
                 json.dumps({"pid": os.getpid(), "code": result, "token": token_facts()}), encoding="ascii")
         raise SystemExit(result)
     except Exception:
         if sys.argv[1:] == ["serve"] and os.name == "nt" and ROOT.parent == Path(r"C:\Program Files"):
             (STATE / "worker-failure.log").write_text(traceback.format_exc(limit=6), encoding="utf8")
-        elif attempt in ("ipc", "denied") and os.name == "nt":
+        elif attempt in ("preflight", "ipc", "denied") and os.name == "nt":
             (ordinary / (attempt + "-failure.log")).write_text(traceback.format_exc(limit=6), encoding="utf8")
         raise

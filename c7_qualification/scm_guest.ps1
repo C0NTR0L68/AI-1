@@ -113,12 +113,6 @@ try {
     & $py -I -S -B $probe provision *> (Join-Path $parcel 'provision.log')
     if ($LASTEXITCODE -ne 42) { throw "Provision exit $LASTEXITCODE" }
     Checkpoint provision 42
-    $phase = 'start'
-    [void](Invoke-Scm @('start',$name))
-    Wait-Status 'Running' 20
-    $first = [int][IO.File]::ReadAllText((Join-Path $state 'ready'))
-    Checkpoint start 42
-    $phase = 'ipc'
     function Invoke-Ordinary([string] $Action) {
         $info = [Diagnostics.ProcessStartInfo]::new($exe)
         $info.Arguments = '--client ' + $Action
@@ -143,6 +137,16 @@ try {
             return $result
         } finally { $process.Dispose() }
     }
+    $phase = 'ordinary-preflight'
+    $preflight = Invoke-Ordinary preflight
+    Checkpoint ordinary-preflight $preflight
+    if ($preflight -ne 42) { throw 'Standard client process was not attested' }
+    $phase = 'start'
+    [void](Invoke-Scm @('start',$name))
+    Wait-Status 'Running' 20
+    $first = [int][IO.File]::ReadAllText((Join-Path $state 'ready'))
+    Checkpoint start 42
+    $phase = 'ipc'
     $ordinaryAvailable = $false
     try {
         $ordinaryCode = Invoke-Ordinary ipc

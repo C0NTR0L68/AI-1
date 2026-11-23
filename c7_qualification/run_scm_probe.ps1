@@ -64,13 +64,13 @@ $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
 }
 $prefix='$ErrorActionPreference=''Stop'';$p='''+$parcel+''';'
-foreach($phase in 'compile','scm-registration','roles','provision','start','ipc','client-unqualified','stop','restart','crash','storage-denials','recovery','cleanup'){
+foreach($phase in 'compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','stop','restart','crash','storage-denials','recovery','cleanup'){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
     $result[$phase]=if($code -ne 90){$code}else{$null}
 }
 if($exitCode -ne 42){
     $result.failed_phase_code=Guest ($prefix+'$f=Join-Path $p ''failed-phase.code'';if(!(Test-Path $f)){exit 90};'+
-        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'');exit (100+[array]::IndexOf($a,$v))')
+        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'');exit (100+[array]::IndexOf($a,$v))')
     $result.diagnostic_code=Guest ($prefix+'$f=Join-Path $p ''failure.log'';if(!(Test-Path $f)){exit 90};$s=Get-Content $f -Raw;'+
         'if($s -match ''SCM operation failed with exit (\d+)''){exit [int]$Matches[1]};'+
         'if($s -match ''binary path or account''){exit 91};if($s -match ''did not confirm restricted''){exit 92};'+

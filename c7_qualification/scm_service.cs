@@ -80,7 +80,8 @@ internal sealed class AuthorityFixtureService : ServiceBase
     {
         if (args.Length != 0)
         {
-            if (args.Length != 2 || args[0] != "--client" || (args[1] != "ipc" && args[1] != "denied")
+            if (args.Length != 2 || args[0] != "--client" ||
+                (args[1] != "preflight" && args[1] != "ipc" && args[1] != "denied")
                 || !WindowsIdentity.GetCurrent().IsSystem) return 78;
             return StartOrdinary(args[1]);
         }
@@ -100,7 +101,7 @@ internal sealed class AuthorityFixtureService : ServiceBase
         string password = Console.ReadLine();
         if (String.IsNullOrEmpty(password)) return 78;
         IntPtr token;
-        if (!LogonUserW("AI1C7GuestClient", ".", password, 2, 0, out token))
+        if (!LogonUserW("AI1C7GuestClient", Environment.MachineName, password, 2, 0, out token))
             return 20000 + Marshal.GetLastWin32Error();
         password = null;
         try
