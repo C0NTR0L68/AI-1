@@ -35,6 +35,36 @@ def profile_probe(state, sid):
     }), encoding="ascii")
 
 
+def snapshot_profile(state, sid):
+    """Copy only the disposable service's known DPAPI profile members."""
+    location = json.loads((state / "profile-location.json").read_bytes())
+    dedicated = (Path(r"C:\Windows\ServiceProfiles\AI1MemoryAuthority"),
+                 Path(r"C:\Users\AI1MemoryAuthority"))
+    expected = {root / "AppData" / "Roaming" / "Microsoft" / "Protect" / sid for root in dedicated}
+    require(location["sid"] == sid and location["resolve_hresult"] == 0)
+    source = Path(location["key_root"])
+    require(source in expected)
+    for directory in (*reversed(source.parents), source):
+        inspect_component(str(directory), expected_kind="directory")
+    require(inspect_component(str(source), expected_kind="directory").owner in (sid, "S-1-5-18"))
+    members = tuple(source.iterdir())
+    require(1 <= len(members) <= 64)
+    backup = state / "profile-backup"
+    backup.mkdir()
+    pins = {}
+    for member in members:
+        require(re.fullmatch(r"(?i:preferred|credhist|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", member.name))
+        data = _read_bound(member)
+        require(len(data) <= 1024 * 1024)
+        with (backup / member.name).open("xb") as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        pins[member.name] = sha256(data).hexdigest()
+    (state / "profile-backup-pins.json").write_text(json.dumps(pins), encoding="ascii")
+    return 42
+
+
 def _rows(path):
     for suffix in ("-journal", "-wal", "-shm"):
         try:

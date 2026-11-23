@@ -44,6 +44,10 @@ def open_probe(phase, root, state, scratch, facts, enrollment, generation):
         require(use_http and facts["sid"] == "S-1-5-18")
         from c7_qualification.scm_recovery_probe import snapshot
         return snapshot(state)
+    if phase == "snapshot-profile":
+        require(use_http and facts["sid"] == "S-1-5-18")
+        from c7_qualification.scm_recovery_probe import snapshot_profile
+        return snapshot_profile(state, sid)
     if phase == "wrong-peer":
         require(facts["sid"] == "S-1-5-18" and facts["sid"] != client_sid)
         for endpoint in (reader, writer):

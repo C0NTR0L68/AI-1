@@ -152,7 +152,8 @@ $result=[ordered]@{
 }
 $phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
 if($WriteProfile){$phases=@('application-pins','compile','scm-registration','roles','write-start','write','wrong-peer','write-stop','resume','verify-write','write-final-stop','cleanup')}
-if($WriteHttp){$phases+=@('backup','restore-same-profile','profile-location')}
+if($WriteHttp){$phases+=@('backup','restore-same-profile','profile-location','profile-backup',
+                         'profile-missing','profile-copy-back','restore-from-profile-copy')}
 if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','wrong-generation','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
 foreach($phase in $phases){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
@@ -167,7 +168,7 @@ if($endToEnd -and $result['dpapi-boundary'] -eq 42){
 }
 if($exitCode -ne 42){
     $result.failed_phase_code=Guest ($prefix+'$f=Join-Path $p ''failed-phase.code'';if(!(Test-Path $f)){exit 90};'+
-        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'',''write-start'',''write'',''resume'',''verify-write'',''backup'');exit (100+[array]::IndexOf($a,$v))')
+        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'',''write-start'',''write'',''resume'',''verify-write'',''backup'',''profile-backup'',''profile-missing'',''profile-copy-back'');exit (100+[array]::IndexOf($a,$v))')
     $result.diagnostic_code=Guest ($prefix+'$f=Join-Path $p ''failure.log'';if(!(Test-Path $f)){exit 90};$s=Get-Content $f -Raw;'+
         'if($s -match ''SCM operation failed with exit (\d+)''){exit [int]$Matches[1]};'+
         'if($s -match ''binary path or account''){exit 91};if($s -match ''did not confirm restricted''){exit 92};'+

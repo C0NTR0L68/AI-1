@@ -202,14 +202,74 @@ try {
             & $py -I -S -B $probe snapshot *> (Join-Path $parcel 'snapshot.log')
             if($LASTEXITCODE -ne 42){throw 'Offline archive snapshot failed'}
             Checkpoint backup 42
-            $profile = Get-Content -LiteralPath (Join-Path $state 'profile-location.json') -Raw|ConvertFrom-Json
+            $profileFacts = Get-Content -LiteralPath (Join-Path $state 'profile-location.json') -Raw|ConvertFrom-Json
             $dedicated=@(
               "C:\Windows\ServiceProfiles\$name\AppData\Roaming\Microsoft\Protect\$($authority.Value)",
               "C:\Users\$name\AppData\Roaming\Microsoft\Protect\$($authority.Value)"
             )
-            if($profile.sid -eq $authority.Value -and $profile.resolve_hresult -eq 0 -and
-               $profile.key_root -in $dedicated -and (Test-Path -LiteralPath $profile.key_root -PathType Container)) {
+            if($profileFacts.sid -eq $authority.Value -and $profileFacts.resolve_hresult -eq 0 -and
+               $profileFacts.key_root -in $dedicated -and (Test-Path -LiteralPath $profileFacts.key_root -PathType Container)) {
                 Checkpoint profile-location 42
+                $phase='profile-backup'
+                & $py -I -S -B $probe snapshot-profile *> (Join-Path $parcel 'profile-snapshot.log')
+                if($LASTEXITCODE -ne 42){throw 'Dedicated profile snapshot was refused'}
+                $keyRoot=[IO.Path]::GetFullPath($profileFacts.key_root)
+                if($keyRoot -notin $dedicated){throw 'Unexpected profile key root'}
+                $quarantine=$keyRoot+'.AI1-qualification-held'
+                $recreated=$keyRoot+'.AI1-qualification-recreated'
+                if((Test-Path -LiteralPath $quarantine) -or (Test-Path -LiteralPath $recreated)){
+                    throw 'Profile trial staging already exists'
+                }
+                $keyAcl=Get-Acl -LiteralPath $keyRoot
+                $profilePins=(Get-Content -LiteralPath (Join-Path $state 'profile-backup-pins.json') -Raw|ConvertFrom-Json).PSObject.Properties
+                $fileAcls=@{}
+                foreach($member in $profilePins){
+                    $original=Join-Path $keyRoot $member.Name
+                    if((Get-FileHash -LiteralPath $original).Hash -ne $member.Value){throw 'Profile bytes changed before trial'}
+                    $fileAcls[$member.Name]=Get-Acl -LiteralPath $original
+                }
+                Checkpoint profile-backup 42
+                $phase='profile-missing'
+                [IO.Directory]::Move($keyRoot,$quarantine)
+                try {
+                    $startupFailure=$false
+                    try {
+                        [void](Invoke-Scm @('start',$name))
+                        Wait-Status 'Running' 20
+                    } catch { $startupFailure=$true }
+                    $currentService=Get-Service -Name $name
+                    if($currentService.Status -ne 'Stopped'){
+                        [void](Invoke-Scm @('stop',$name))
+                        Wait-Status 'Stopped' 15
+                    }
+                    $failureLog=Join-Path $state 'worker-failure.log'
+                    if($startupFailure -and (Test-Path -LiteralPath $failureLog) -and
+                       ([IO.File]::ReadAllText($failureLog) -match 'ArchiveUnavailable: archive_unavailable')){
+                        Checkpoint profile-missing 42
+                    } else {
+                        Checkpoint profile-missing 65
+                    }
+                } finally {
+                    $phase='profile-copy-back'
+                    if((Get-Service -Name $name).Status -ne 'Stopped'){throw 'Cannot restore with the service active'}
+                    if(Test-Path -LiteralPath $keyRoot){
+                        if((Get-Item -LiteralPath $keyRoot).Attributes -band [IO.FileAttributes]::ReparsePoint){
+                            throw 'Unexpected recreated profile link'
+                        }
+                        [IO.Directory]::Move($keyRoot,$recreated)
+                    }
+                    [void][IO.Directory]::CreateDirectory($keyRoot,$keyAcl)
+                    Set-Acl -LiteralPath $keyRoot -AclObject $keyAcl
+                    foreach($member in $profilePins){
+                        $copy=Join-Path (Join-Path $state 'profile-backup') $member.Name
+                        if((Get-FileHash -LiteralPath $copy).Hash -ne $member.Value){throw 'Profile backup pin mismatch'}
+                        $destination=Join-Path $keyRoot $member.Name
+                        [IO.File]::Copy($copy,$destination,$false)
+                        Set-Acl -LiteralPath $destination -AclObject $fileAcls[$member.Name]
+                        if((Get-FileHash -LiteralPath $destination).Hash -ne $member.Value){throw 'Profile restore pin mismatch'}
+                    }
+                    Checkpoint profile-copy-back 42
+                }
             } else {
                 Checkpoint profile-location 65
             }
@@ -224,6 +284,9 @@ try {
                 throw 'Restored candidate was not validated by the new service process'
             }
             Checkpoint restore-same-profile 42
+            if(Test-Path -LiteralPath (Join-Path $parcel 'profile-copy-back.code')) {
+                Checkpoint restore-from-profile-copy 42
+            }
         }
         [IO.File]::WriteAllBytes((Join-Path $state 'lose-write-ack'),[byte[]]@())
         if((Invoke-Ordinary resume) -ne 42){throw 'Restarted read or interrupted delete not confirmed'}
