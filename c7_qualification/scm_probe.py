@@ -155,7 +155,7 @@ def main():
     enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
     registry_instance = registry()
     journal = DB.with_name(DB.name + "-journal")
-    scratch = Path(r"C:\Users\Public\Documents") / ROOT.name
+    scratch = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     if phase == "provision":
         require(facts["sid"] == "S-1-5-18")
         with DB.open("xb"):

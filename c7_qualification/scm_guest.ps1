@@ -97,6 +97,7 @@ try {
         throw 'SCM binary path or account differs from the reviewed request'
     }
     if ($configured.ServiceSidType -ne 3) { throw 'SCM did not confirm restricted SID type' }
+    Checkpoint scm-registration 42
     $authority = ([Security.Principal.NTAccount]::new("NT SERVICE\$name")).Translate([Security.Principal.SecurityIdentifier])
     $rule = @{sid=$system;access='FullControl'}
     Protect-Directory $root @($rule,@{sid=$authority;access='ReadAndExecute'},@{sid=$client;access='ReadAndExecute'})
@@ -106,9 +107,8 @@ try {
     Protect-Directory $archives @($rule,@{sid=$authority;access='ReadAndExecute'},@{sid=$client;access='ReadAndExecute'})
     [IO.File]::WriteAllText((Join-Path $archives 'archive.synthetic'),'synthetic archive canary')
     @{authority=$authority.Value;client=$client.Value}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
-    $parcelAcl=Get-Acl -LiteralPath $parcel
-    $parcelAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($client,'Modify','None','None','Allow'))
-    Set-Acl -LiteralPath $parcel -AclObject $parcelAcl
+    $clientScratch = Join-Path $parcel 'ordinary'
+    Protect-Directory $clientScratch @($rule,@{sid=$client;access='Modify'})
     Checkpoint roles 42
     $phase = 'provision'
     & $py -I -S -B $probe provision *> (Join-Path $parcel 'provision.log')
@@ -121,7 +121,7 @@ try {
     Checkpoint start 42
     $phase = 'ipc'
     $common = '-I -S -B "'+$probe+'" '
-    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'ipc') -WorkingDirectory $parcel -Credential $credential -WindowStyle Hidden -PassThru
+    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'ipc') -WorkingDirectory $clientScratch -Credential $credential -WindowStyle Hidden -PassThru
     if (!$ordinaryProcess.WaitForExit(10000)) { $ordinaryProcess.Kill(); throw 'Client IPC deadline' }
     Checkpoint ipc $ordinaryProcess.ExitCode
     if ($ordinaryProcess.ExitCode -notin (42,65)) { throw 'Unconfirmed non-elevated client outcome' }
@@ -143,7 +143,7 @@ try {
         !(Test-Path -LiteralPath (Join-Path $state 'head.sqlite3-journal'))) { throw 'Crash or journal unconfirmed' }
     Checkpoint crash 42
     $phase = 'storage-denials'
-    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'denied') -WorkingDirectory $parcel -Credential $credential -WindowStyle Hidden -PassThru
+    $ordinaryProcess = Start-Process -FilePath $py -ArgumentList ($common+'denied') -WorkingDirectory $clientScratch -Credential $credential -WindowStyle Hidden -PassThru
     if (!$ordinaryProcess.WaitForExit(10000)) { $ordinaryProcess.Kill(); throw 'Storage canary deadline' }
     Checkpoint storage-denials $ordinaryProcess.ExitCode
     if ($ordinaryProcess.ExitCode -ne 42) { throw 'SCM/storage denial failed' }
@@ -160,7 +160,7 @@ try {
     $complete = $true
 } catch {
     Checkpoint failed-phase $phase
-    [IO.File]::WriteAllText((Join-Path $parcel 'failure.log'), $_.ToString())
+    [IO.File]::WriteAllText((Join-Path $parcel 'failure.log'), ($_.ToString()+'`n'+$_.InvocationInfo.PositionMessage))
 } finally {
     if ($created) {
         $status=Get-Service -Name $name
