@@ -1,0 +1,17 @@
+{
+  "service_name": "AI1MemoryAuthority",
+  "image_path": "\"C:\\Program Files\\AI-1\\MemoryAuthority\\Authority.exe\"",
+  "account": "NT SERVICE\\AI1MemoryAuthority",
+  "service_type": "WIN32_OWN_PROCESS",
+  "start_type": "DEMAND_START",
+  "service_sid_type": "RESTRICTED",
+  "ordinary_start_arguments": [],
+  "explicit_admin_provision_arguments": ["provision"],
+  "working_directory": "C:\\Program Files\\AI-1\\MemoryAuthority",
+  "child_executable": "payload\\runtime\\python\\python.exe",
+  "child_flags": ["-I", "-S", "-B"],
+  "child_script": "payload\\app\\memory_authority_service.py",
+  "enrollment_filename": "authority-enrollment.json",
+  "default_integrity_rid": 12288,
+  "activation": "OFF"
+}
