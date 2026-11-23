@@ -2,6 +2,7 @@
 from contextlib import closing
 from hashlib import sha256
 import ctypes
+from ctypes import wintypes as W
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ from app.memory_crypto import unprotect_for_current_user
 from app.memory_head_v2 import Head
 from app.memory_ledger import MemoryLedger
 from app.memory_write_v2 import _SCHEMA
-from app.windows_storage_inspector import inspect_component, read_pinned_artifact
+from app.windows_storage_inspector import _windows_apis, inspect_component, read_pinned_artifact
 
 
 def require(value):
@@ -35,8 +36,7 @@ def profile_probe(state, sid):
     }), encoding="ascii")
 
 
-def snapshot_profile(state, sid):
-    """Copy only the disposable service's known DPAPI profile members."""
+def _profile_root(state, sid):
     location = json.loads((state / "profile-location.json").read_bytes())
     dedicated = (Path(r"C:\Windows\ServiceProfiles\AI1MemoryAuthority"),
                  Path(r"C:\Users\AI1MemoryAuthority"))
@@ -44,6 +44,12 @@ def snapshot_profile(state, sid):
     require(location["sid"] == sid and location["resolve_hresult"] == 0)
     source = Path(location["key_root"])
     require(source in expected)
+    return source
+
+
+def snapshot_profile(state, sid):
+    """Copy only the disposable service's known DPAPI profile members."""
+    source = _profile_root(state, sid)
     for directory in (*reversed(source.parents), source):
         inspect_component(str(directory), expected_kind="directory")
     require(inspect_component(str(source), expected_kind="directory").owner in (sid, "S-1-5-18"))
@@ -62,6 +68,76 @@ def snapshot_profile(state, sid):
             os.fsync(output.fileno())
         pins[member.name] = sha256(data).hexdigest()
     (state / "profile-backup-pins.json").write_text(json.dumps(pins), encoding="ascii")
+    return 42
+
+
+def restore_profile(state, sid):
+    """Exercise the backup operator privilege only inside the disposable guest."""
+    key_root = _profile_root(state, sid)
+    require(not key_root.exists() and not key_root.is_symlink())
+    for directory in reversed(key_root.parents):
+        inspect_component(str(directory), expected_kind="directory")
+    pins = json.loads((state / "profile-backup-pins.json").read_bytes())
+    descriptors = json.loads((state / "profile-security.json").read_bytes())
+    require(descriptors.keys() == {"root", "files"} and descriptors["files"].keys() == pins.keys())
+    require(1 <= len(pins) <= 64)
+    kernel, adv = _windows_apis()
+
+    def bind(dll, name, result, *arguments):
+        function = getattr(dll, name)
+        function.argtypes, function.restype = arguments, result
+        return function
+
+    class Luid(ctypes.Structure):
+        _fields_ = [("low", W.DWORD), ("high", W.LONG)]
+
+    class Privilege(ctypes.Structure):
+        _fields_ = [("size", W.DWORD), ("luid", Luid), ("attributes", W.DWORD)]
+
+    current = bind(kernel, "GetCurrentProcess", W.HANDLE)
+    open_token = bind(adv, "OpenProcessToken", W.BOOL, W.HANDLE, W.DWORD, ctypes.POINTER(W.HANDLE))
+    lookup = bind(adv, "LookupPrivilegeValueW", W.BOOL, W.LPCWSTR, W.LPCWSTR, ctypes.POINTER(Luid))
+    adjust = bind(adv, "AdjustTokenPrivileges", W.BOOL, W.HANDLE, W.BOOL, ctypes.POINTER(Privilege),
+                  W.DWORD, ctypes.c_void_p, ctypes.c_void_p)
+    convert = bind(adv, "ConvertStringSecurityDescriptorToSecurityDescriptorW", W.BOOL, W.LPCWSTR,
+                   W.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)
+    set_security = bind(adv, "SetFileSecurityW", W.BOOL, W.LPCWSTR, W.DWORD, ctypes.c_void_p)
+    token = W.HANDLE()
+    if not open_token(current(), 0x20, ctypes.byref(token)):  # TOKEN_ADJUST_PRIVILEGES
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        luid = Luid()
+        if not lookup(None, "SeRestorePrivilege", ctypes.byref(luid)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        enabled = Privilege(1, luid, 2)
+        if not adjust(token, False, ctypes.byref(enabled), 0, None, None) or ctypes.get_last_error() != 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.CloseHandle(token)
+
+    def apply(path, sddl):
+        descriptor = ctypes.c_void_p()
+        if type(sddl) is not str or len(sddl) > 8192 or not convert(sddl, 1, ctypes.byref(descriptor), None):
+            raise ValueError("Profile descriptor unavailable")
+        try:
+            if not set_security(str(path), 7, descriptor):  # OWNER | GROUP | DACL
+                raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            kernel.LocalFree(descriptor)
+
+    key_root.mkdir()
+    apply(key_root, descriptors["root"])
+    for name, digest in pins.items():
+        require(re.fullmatch(r"(?i:preferred|credhist|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", name))
+        data = _read_bound(state / "profile-backup" / name)
+        require(sha256(data).hexdigest() == digest)
+        destination = key_root / name
+        with destination.open("xb") as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        apply(destination, descriptors["files"][name])
+        require(sha256(_read_bound(destination)).hexdigest() == digest)
     return 42
 
 

@@ -221,13 +221,17 @@ try {
                     throw 'Profile trial staging already exists'
                 }
                 $keyAcl=Get-Acl -LiteralPath $keyRoot
+                $securitySections=[Security.AccessControl.AccessControlSections]'Owner,Group,Access'
+                $keySecurity=$keyAcl.GetSecurityDescriptorSddlForm($securitySections)
                 $profilePins=(Get-Content -LiteralPath (Join-Path $state 'profile-backup-pins.json') -Raw|ConvertFrom-Json).PSObject.Properties
                 $fileAcls=@{}
                 foreach($member in $profilePins){
                     $original=Join-Path $keyRoot $member.Name
                     if((Get-FileHash -LiteralPath $original).Hash -ne $member.Value){throw 'Profile bytes changed before trial'}
-                    $fileAcls[$member.Name]=Get-Acl -LiteralPath $original
+                    $fileAcls[$member.Name]=(Get-Acl -LiteralPath $original).GetSecurityDescriptorSddlForm($securitySections)
                 }
+                @{root=$keySecurity;files=$fileAcls}|ConvertTo-Json -Depth 4 |
+                    Set-Content -LiteralPath (Join-Path $state 'profile-security.json') -Encoding ascii
                 Checkpoint profile-backup 42
                 $phase='profile-missing'
                 [IO.Directory]::Move($keyRoot,$quarantine)
@@ -258,15 +262,17 @@ try {
                         }
                         [IO.Directory]::Move($keyRoot,$recreated)
                     }
-                    [void][IO.Directory]::CreateDirectory($keyRoot,$keyAcl)
-                    Set-Acl -LiteralPath $keyRoot -AclObject $keyAcl
+                    & $py -I -S -B $probe restore-profile *> (Join-Path $parcel 'profile-restore.log')
+                    if($LASTEXITCODE -ne 42){throw 'Backup operator could not restore the admitted profile'}
+                    if((Get-Acl -LiteralPath $keyRoot).GetSecurityDescriptorSddlForm($securitySections) -cne $keySecurity){
+                        throw 'Profile directory descriptor changed'
+                    }
                     foreach($member in $profilePins){
-                        $copy=Join-Path (Join-Path $state 'profile-backup') $member.Name
-                        if((Get-FileHash -LiteralPath $copy).Hash -ne $member.Value){throw 'Profile backup pin mismatch'}
                         $destination=Join-Path $keyRoot $member.Name
-                        [IO.File]::Copy($copy,$destination,$false)
-                        Set-Acl -LiteralPath $destination -AclObject $fileAcls[$member.Name]
                         if((Get-FileHash -LiteralPath $destination).Hash -ne $member.Value){throw 'Profile restore pin mismatch'}
+                        if((Get-Acl -LiteralPath $destination).GetSecurityDescriptorSddlForm($securitySections) -cne $fileAcls[$member.Name]){
+                            throw 'Profile file descriptor changed'
+                        }
                     }
                     Checkpoint profile-copy-back 42
                 }
