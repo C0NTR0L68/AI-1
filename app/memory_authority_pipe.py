@@ -173,7 +173,7 @@ class PipeAuthorityClient:
                 yield api, handle, deadline
             finally:
                 api.CloseHandle(handle)
-        except (OSError, EOFError, ValueError) as error:
+        except (OSError, EOFError) as error:
             raise HeadUnavailable("authority_pipe_unavailable") from error
 
 
