@@ -1,6 +1,7 @@
 param([Parameter(Mandatory)][Guid] $TransferId,
       [Parameter(Mandatory)][ValidatePattern('^[A-F0-9]{64}$')][string] $SourceManifestSha256,
-      [ValidateSet('high','medium')][string] $Profile='high')
+      [ValidateSet('high','medium')][string] $Profile='high',
+      [switch] $EndToEnd)
 $ErrorActionPreference = 'Stop'
 $parcelName = 'AI1-C7-' + $TransferId.ToString('N')
 $parcel = Join-Path 'C:\Users\Public\Documents' $parcelName
@@ -18,6 +19,7 @@ $bridge = Get-Content -LiteralPath (Join-Path $parcel 'bridge-ready.json') -Raw|
 $ordinary = Get-LocalUser -Name $user
 if($bridge.preflight -ne 42 -or !$ordinary.Enabled -or $ordinary.SID.Value -ne $bridge.sid){exit 67}
 $client = $ordinary.SID
+if ($EndToEnd -and $Profile -ne 'medium') { exit 68 }
 
 $archive = Join-Path $parcel 'c7-binding.zip'
 if ((Get-FileHash -LiteralPath $archive).Hash -ne '9D56A383933EA9D5469A3CE8588262376CDCDFC59438AF6779B3CE2FA85D7500') { exit 64 }
@@ -68,11 +70,36 @@ try {
     [IO.File]::Copy((Join-Path $parcel 'source-pins.json'),$sourceManifest,$false)
     if ((Get-FileHash -LiteralPath $sourceManifest).Hash -ne $SourceManifestSha256) { exit 64 }
     $pins = Get-Content -LiteralPath $sourceManifest -Raw|ConvertFrom-Json
-    foreach ($file in 'scm_service.cs','scm_probe.py','memory_authority_pipe.py') {
+    $files = @('scm_service.cs','scm_probe.py','memory_authority_pipe.py')
+    if ($EndToEnd) { $files += 'scm_dpapi_e2e.py' }
+    foreach ($file in $files) {
         $input = Join-Path $parcel $file
         $target = Join-Path $payload $(if($file -eq 'memory_authority_pipe.py'){'app\'+$file}else{'c7_qualification\'+$file})
         [IO.File]::Copy($input,$target,$false)
         if ((Get-FileHash -LiteralPath $target).Hash -ne $pins.$file) { exit 64 }
+    }
+    if ($EndToEnd) {
+        $dependency = Join-Path $parcel 'dotenv-addon.zip'
+        if ((Get-FileHash -LiteralPath $dependency).Hash -ne 'FF8F3C00CAA41A26A3C5328653E55AFF70F079E078518082C50D2A946AEA401E') { exit 64 }
+        $deps = Join-Path $payload 'deps'
+        [IO.Compression.ZipFile]::ExtractToDirectory($dependency,$deps)
+        foreach ($wheel in (Get-ChildItem -LiteralPath (Join-Path $payload 'wheels') -Filter '*.whl')) {
+            $entries = [IO.Compression.ZipFile]::OpenRead($wheel.FullName)
+            try {
+                foreach ($entry in $entries.Entries) {
+                    if (!$entry.Name) { continue }
+                    if ($entry.FullName -cnotmatch '^[a-zA-Z0-9_./+\-]+$' -or
+                        $entry.FullName.Contains('..') -or $entry.FullName.StartsWith('/')) { exit 64 }
+                    $destination = Join-Path $deps $entry.FullName
+                    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+                    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$destination,$false)
+                }
+            } finally { $entries.Dispose() }
+        }
+        foreach ($pin in $pins.application.PSObject.Properties) {
+            if ((Get-FileHash -LiteralPath (Join-Path $payload $pin.Name)).Hash -ne $pin.Value) { exit 64 }
+        }
+        Checkpoint application-pins 42
     }
     $phase = 'compile'
     $exe = Join-Path $root 'Authority.exe'
@@ -105,15 +132,12 @@ try {
     Protect-Directory $archives @($rule,@{sid=$authority;access='ReadAndExecute'},@{sid=$client;access='ReadAndExecute'})
     [IO.File]::WriteAllText((Join-Path $archives 'archive.synthetic'),'synthetic archive canary')
     $integrity=if($Profile -eq 'medium'){8192}else{12288}
-    @{authority=$authority.Value;client=$client.Value;integrity=$integrity}|
+    $enrollment=@{authority=$authority.Value;client=$client.Value;integrity=$integrity}
+    $enrollment|
         ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
     $clientScratch = Join-Path $parcel 'ordinary'
     Protect-Directory $clientScratch @($rule,@{sid=$client;access='Modify'})
     Checkpoint roles 42
-    $phase = 'provision'
-    & $py -I -S -B $probe provision *> (Join-Path $parcel 'provision.log')
-    if ($LASTEXITCODE -ne 42) { throw "Provision exit $LASTEXITCODE" }
-    Checkpoint provision 42
     function Invoke-Ordinary([string] $Action) {
         $request=Join-Path $parcel ($Action+'.request')
         $reply=Join-Path $parcel ($Action+'.reply')
@@ -133,6 +157,29 @@ try {
         }
         return $result
     }
+    if ($EndToEnd) {
+        $phase = 'archive-enrollment'
+        if ((Invoke-Ordinary e2e-seal) -ne 42) { throw 'Standard user DPAPI sealing failed' }
+        $approved = Get-Content -LiteralPath (Join-Path $clientScratch 'dpapi-enrollment.json') -Raw|ConvertFrom-Json
+        if ($approved.generation -cne '635f83dd-3bb7-4041-b4c8-7d39cb25d13a' -or
+            $approved.current -cnotmatch '^[a-f0-9]{64}$' -or $approved.previous -cnotmatch '^[a-f0-9]{64}$' -or
+            $approved.canary -cnotmatch '^[a-f0-9]{64}$' -or $approved.current -ceq $approved.previous) {
+            throw 'Unexpected synthetic enrollment'
+        }
+        $copy = Join-Path $archives 'dpapi-current.v2a'
+        [IO.File]::Copy((Join-Path $clientScratch ('dpapi-archives\memory-'+$approved.current+'.v2a')),$copy,$false)
+        $canary = Join-Path $archives 'dpapi-canary.bin'
+        [IO.File]::Copy((Join-Path $clientScratch 'dpapi-canary.bin'),$canary,$false)
+        if ((Get-FileHash -LiteralPath $copy).Hash -ne $approved.current -or
+            (Get-FileHash -LiteralPath $canary).Hash -ne $approved.canary) { throw 'DPAPI fixture digest mismatch' }
+        $enrollment.dpapi = $approved
+        $enrollment|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $root 'enrollment.json') -Encoding ascii
+        Checkpoint archive-enrollment 42
+    }
+    $phase = 'provision'
+    & $py -I -S -B $probe provision *> (Join-Path $parcel 'provision.log')
+    if ($LASTEXITCODE -ne 42) { throw "Provision exit $LASTEXITCODE" }
+    Checkpoint provision 42
     $phase = 'ordinary-preflight'
     Checkpoint ordinary-preflight 42
     $phase = 'start'
@@ -140,6 +187,18 @@ try {
     Wait-Status 'Running' 20
     $first = [int][IO.File]::ReadAllText((Join-Path $state 'ready'))
     Checkpoint start 42
+    if ($EndToEnd) {
+        $phase = 'dpapi-boundary'
+        $deniedCode = [int][IO.File]::ReadAllText((Join-Path $state 'dpapi-boundary.code'))
+        if ($deniedCode -eq 0) { throw 'Authority DPAPI denial unconfirmed' }
+        Checkpoint dpapi-boundary 42
+        [IO.File]::WriteAllText((Join-Path $parcel 'dpapi-native-error.txt'), [string]$deniedCode)
+        $phase = 'e2e-live'
+        if ((Invoke-Ordinary e2e-live) -ne 42) { throw 'LOCAL and archive checks failed' }
+        $checkLabels = Get-Content -LiteralPath (Join-Path $clientScratch 'e2e-live-checks.json') -Raw|ConvertFrom-Json
+        if (($checkLabels -join ':') -cne 'e2e-live:corrupt:stale:replaced-path:e2e-restored') { throw 'Archive check coverage mismatch' }
+        foreach ($label in $checkLabels) { Checkpoint $label 42 }
+    }
     $phase = 'ipc'
     $ordinaryAvailable = $false
     try {
@@ -161,12 +220,25 @@ try {
         Checkpoint dropped 42
         if ((Invoke-Ordinary ipc-recovered) -ne 42) { throw 'IPC did not recover after disconnect' }
         Checkpoint ipc-recovered 42
+        if ($EndToEnd) {
+            foreach ($scenario in @(@{phase='e2e-drop';marker='drop-next'},@{phase='e2e-timeout';marker='timeout-next'})) {
+                $phase = $scenario.phase
+                [IO.File]::WriteAllBytes((Join-Path $state $scenario.marker),[byte[]]@())
+                if ((Invoke-Ordinary $phase) -ne 42) { throw 'LOCAL failure did not prove safe refusal' }
+                Checkpoint $phase 42
+            }
+        }
     }
     $phase = 'stop'
     [void](Invoke-Scm @('stop',$name))
     Wait-Status 'Stopped' 15
     if (Get-Process -Id $first -ErrorAction SilentlyContinue) { throw 'First worker still present' }
     Checkpoint stop 42
+    if ($EndToEnd) {
+        $phase = 'e2e-down'
+        if ((Invoke-Ordinary e2e-down) -ne 42) { throw 'LOCAL did not refuse a stopped service' }
+        Checkpoint e2e-down 42
+    }
     if ($Profile -eq 'medium') {
         if ((Invoke-Ordinary counterfeit) -ne 42) { throw 'Counterfeit owner rejection was not confirmed' }
         Checkpoint counterfeit 42
@@ -193,6 +265,11 @@ try {
     [void](Invoke-Scm @('start',$name))
     Wait-Status 'Running' 20
     $third = [int][IO.File]::ReadAllText((Join-Path $state 'ready'))
+    if ($EndToEnd) {
+        $phase = 'e2e-restart'
+        if ($third -in ($first,$second) -or (Invoke-Ordinary e2e-restart) -ne 42) { throw 'LOCAL did not recover after service crash' }
+        Checkpoint e2e-restart 42
+    }
     [void](Invoke-Scm @('stop',$name))
     Wait-Status 'Stopped' 15
     if (Get-Process -Id $third -ErrorAction SilentlyContinue) { throw 'Restart worker still present' }

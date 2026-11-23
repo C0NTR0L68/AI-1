@@ -3,11 +3,14 @@ param(
     [Parameter(Mandatory)][Guid] $TransferId,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Revision,
     [Parameter(Mandatory)][string] $Evidence,
-    [ValidateSet('high','medium')][string] $Profile='high'
+    [ValidateSet('high','medium')][string] $Profile='high',
+    [string] $DotenvArchive
 )
 $ErrorActionPreference='Stop'
 $parcel='C:\Users\Public\Documents\AI1-C7-'+$TransferId.ToString('N')
 $repo=Split-Path $PSScriptRoot
+$endToEnd = $DotenvArchive -ne ''
+if ($endToEnd -and $Profile -ne 'medium') { throw 'Explicit medium enrollment required' }
 
 function Guest([string] $Body,[string] $Actor='System',[switch] $Encoded){
     $command=if($Encoded){
@@ -50,8 +53,23 @@ function Upload([string] $Name,[byte[]] $Bytes) {
 }
 
 $sources=[ordered]@{}
-foreach($name in 'c7_qualification/scm_service.cs','c7_qualification/scm_probe.py','app/memory_authority_pipe.py'){
+$sourceFiles = @('c7_qualification/scm_service.cs','c7_qualification/scm_probe.py','app/memory_authority_pipe.py')
+if ($endToEnd) { $sourceFiles += 'c7_qualification/scm_dpapi_e2e.py' }
+foreach($name in $sourceFiles){
     $sources[$name.Split('/')[-1]]=Upload ($name.Split('/')[-1]) (Read-PinnedSource $name)
+}
+if ($endToEnd) {
+    if ((Get-FileHash -LiteralPath $DotenvArchive).Hash -ne 'FF8F3C00CAA41A26A3C5328653E55AFF70F079E078518082C50D2A946AEA401E') {
+        throw 'Dependency pin mismatch'
+    }
+    $sources.dotenv=Upload 'dotenv-addon.zip' ([IO.File]::ReadAllBytes($DotenvArchive))
+    $appPins=[ordered]@{}
+    $files = @(git -C $repo ls-tree -r --name-only $Revision -- app)
+    if($LASTEXITCODE -ne 0 -or $files.Count -eq 0){throw 'Trusted application file list unavailable'}
+    foreach ($name in ($files + 'c7_qualification/probe.py')) {
+        $appPins[$name]=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData((Read-PinnedSource $name)))
+    }
+    $sources.application=$appPins
 }
 $manifest=Upload 'source-pins.json' ([Text.Encoding]::UTF8.GetBytes(($sources|ConvertTo-Json)))
 $setup=Read-PinnedSource 'c7_qualification/scm_guest.ps1'
@@ -59,6 +77,7 @@ $setupHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($setu
 $setup64=[Convert]::ToBase64String($setup)
 $command='$ErrorActionPreference=''Stop'';$bytes=[Convert]::FromBase64String('''+$setup64+''');'+
     '$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString($bytes));& $s -TransferId '''+$TransferId+''' -SourceManifestSha256 '''+$manifest+''' -Profile '''+$Profile+''''
+if ($endToEnd) { $command += ' -EndToEnd' }
 $preflight=Read-PinnedSource 'c7_qualification/standard_user_preflight.ps1'
 $preflightHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($preflight))
 $preflight64=[Convert]::ToBase64String($preflight)
@@ -95,15 +114,24 @@ try {
 $result=[ordered]@{
     revision=$Revision;guest_exit=$exitCode;source_sha256=$sources;guest_script_sha256=$setupHash;guest_source_manifest_sha256=$manifest
     ordinary_bridge_sha256=$preflightHash;ordinary_bridge_exit=$bridgeExit
-    profile=$Profile
+    profile=$Profile; end_to_end=$endToEnd
 }
-foreach($phase in 'compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup'){
+$phases=@('compile','scm-registration','roles','provision','ordinary-preflight','start','ipc','client-unqualified','wrong-peer','dropped','ipc-recovered','stop','counterfeit','restart','crash','storage-denials','recovery','cleanup')
+if($endToEnd){$phases+=@('application-pins','archive-enrollment','dpapi-boundary','e2e-live','corrupt','stale','replaced-path','e2e-restored','e2e-drop','e2e-timeout','e2e-down','e2e-restart')}
+foreach($phase in $phases){
     $code=Guest ($prefix+'$f=Join-Path $p '''+$phase+'.code'';if(!(Test-Path -LiteralPath $f)){exit 90};exit ([int][IO.File]::ReadAllText($f))')
     $result[$phase]=if($code -ne 90){$code}else{$null}
 }
+if($endToEnd -and $result['dpapi-boundary'] -eq 42){
+    # Send only the numeric native failure; encode each byte in a bounded exit code.
+    $parts=0..3|ForEach-Object {
+        Guest ($prefix+'$v=[int][IO.File]::ReadAllText((Join-Path $p ''dpapi-native-error.txt''));exit (($v -shr '+($_*8)+') -band 255)')
+    }
+    $result.dpapi_native_error_hex=('{0:X2}{1:X2}{2:X2}{3:X2}' -f $parts[3],$parts[2],$parts[1],$parts[0])
+}
 if($exitCode -ne 42){
     $result.failed_phase_code=Guest ($prefix+'$f=Join-Path $p ''failed-phase.code'';if(!(Test-Path $f)){exit 90};'+
-        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'');exit (100+[array]::IndexOf($a,$v))')
+        '$v=[IO.File]::ReadAllText($f);$a=@(''create-root'',''compile'',''create-roles'',''provision'',''start'',''ipc'',''stop'',''restart'',''crash'',''storage-denials'',''recovery'',''ordinary-preflight'',''archive-enrollment'',''dpapi-boundary'',''e2e-live'',''e2e-drop'',''e2e-timeout'',''e2e-down'',''e2e-restart'');exit (100+[array]::IndexOf($a,$v))')
     $result.diagnostic_code=Guest ($prefix+'$f=Join-Path $p ''failure.log'';if(!(Test-Path $f)){exit 90};$s=Get-Content $f -Raw;'+
         'if($s -match ''SCM operation failed with exit (\d+)''){exit [int]$Matches[1]};'+
         'if($s -match ''binary path or account''){exit 91};if($s -match ''did not confirm restricted''){exit 92};'+

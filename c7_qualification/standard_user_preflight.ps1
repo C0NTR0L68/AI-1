@@ -117,7 +117,8 @@ public static class Ai1StandardGuest
     public static int LaunchFixture(string user,string domain,IntPtr password,string sid,string parcel,string kind)
     {
         if(!System.Text.RegularExpressions.Regex.IsMatch(parcel,@"\AAI1-C7-[a-f0-9]{32}\z")
-            || (kind!="ipc" && kind!="denied" && kind!="counterfeit" && kind!="dropped" && kind!="ipc-recovered")) return 78;
+            || !System.Text.RegularExpressions.Regex.IsMatch(kind,
+                @"\A(ipc|denied|counterfeit|dropped|ipc-recovered|e2e-seal|e2e-live|e2e-drop|e2e-timeout|e2e-down|e2e-restart)\z")) return 78;
         string root=System.IO.Path.Combine(@"C:\Program Files",parcel,"payload");
         string python=System.IO.Path.Combine(root,@"runtime\python\python.exe");
         string probe=System.IO.Path.Combine(root,@"c7_qualification\scm_probe.py");
@@ -184,11 +185,12 @@ try {
         $result.ordinary_process=[Ai1StandardGuest]::Launch($name,$env:COMPUTERNAME,$memory,$userSid)
         if($Bridge -and $result.ordinary_process -eq 42 -and $result.local_logon -eq 42){
             Publish-Receipt (Join-Path $root 'bridge-ready.json') (@{sid=$userSid;preflight=42}|ConvertTo-Json)
-            $deadline=[DateTime]::UtcNow.AddMinutes(4)
+            $deadline=[DateTime]::UtcNow.AddMinutes(5)
             $stop=Join-Path $root 'bridge-done'
             while(!(Test-Path -LiteralPath $stop)){
                 if([DateTime]::UtcNow -gt $deadline){throw 'Synthetic bridge deadline'}
-                foreach($phase in 'ipc','denied','counterfeit','dropped','ipc-recovered'){
+                foreach($phase in 'ipc','denied','counterfeit','dropped','ipc-recovered',
+                    'e2e-seal','e2e-live','e2e-drop','e2e-timeout','e2e-down','e2e-restart'){
                     $request=Join-Path $root ($phase+'.request')
                     $reply=Join-Path $root ($phase+'.reply')
                     if((Test-Path -LiteralPath $request) -and !(Test-Path -LiteralPath $reply)){

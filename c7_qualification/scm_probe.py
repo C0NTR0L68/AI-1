@@ -10,7 +10,7 @@ import re
 import sqlite3
 import sys
 from threading import Thread
-from time import monotonic
+from time import monotonic, sleep
 import traceback
 from uuid import UUID
 
@@ -20,7 +20,9 @@ ROOT = PAYLOAD.parent
 STATE = ROOT / "state"
 DB = STATE / "head.sqlite3"
 GENERATION = UUID("635f83dd-3bb7-4041-b4c8-7d39cb25d13a")
+E2E = ("e2e-seal", "e2e-live", "e2e-drop", "e2e-timeout", "e2e-down", "e2e-restart")
 sys.path.insert(0, str(PAYLOAD))
+sys.path.append(str(PAYLOAD / "deps"))
 
 from app.memory_authority_pipe import PipeAuthorityClient, authority_listener
 from app.memory_head_v2 import DurableHeadRegistry, Head, HeadUnavailable
@@ -81,10 +83,6 @@ def token_facts():
 
 def digest(revision):
     return sha256(str(revision).encode("ascii")).digest()
-
-
-def head(revision):
-    return Head(GENERATION, revision, digest(revision))
 
 
 def registry():
@@ -154,6 +152,10 @@ def main():
         register_fixture()
         return 42
     enrollment = json.loads((ROOT / "enrollment.json").read_bytes())
+    dpapi = enrollment.get("dpapi")
+    revision = int(dpapi is not None)
+    current = Head(GENERATION, revision, bytes.fromhex(dpapi["current"]) if dpapi else digest(0))
+    following = Head(GENERATION, revision + 1, digest(revision + 1))
     registry_instance = registry()
     journal = DB.with_name(DB.name + "-journal")
     scratch = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
@@ -161,18 +163,30 @@ def main():
         require(facts["sid"] == "S-1-5-18")
         with DB.open("xb"):
             pass
-        registry_instance.provision(head(0))
+        initial = Head(GENERATION, 0, bytes.fromhex(dpapi["previous"])) if dpapi else current
+        registry_instance.provision(initial)
+        if dpapi:
+            require(registry_instance.advance(initial, current))
         (STATE / "before.json").write_text(json.dumps(hashes()), encoding="ascii")
         return 42
     if phase == "serve":
         require(facts["sid"] == enrollment["authority"] and facts["sid"] in facts["restrictions"])
-        require(registry_instance.read() == head(0))
+        require(registry_instance.read() == current)
+        if dpapi:
+            from c7_qualification.scm_dpapi_e2e import verify_as_authority
+            outcome = verify_as_authority(ROOT, dpapi)
+            (STATE / "dpapi-boundary.code").write_text(str(outcome), encoding="ascii")
+
         class FixtureAuthority:
             def read(self):
                 drop = STATE / "drop-next"
                 if drop.exists():
                     drop.unlink()
                     raise HeadUnavailable("synthetic_service_drop")
+                delayed = STATE / "timeout-next"
+                if delayed.exists():
+                    delayed.unlink()
+                    sleep(3)
                 return registry_instance.read()
 
         with authority_listener(ROOT.name, server_sid=facts["sid"], client_sid=enrollment["client"],
@@ -186,7 +200,7 @@ def main():
                     connection = sqlite3.connect(DB.as_uri() + "?mode=rw", uri=True)
                     connection.execute("BEGIN IMMEDIATE")
                     connection.execute("INSERT INTO main.head_journal VALUES (?, ?, ?)",
-                                       (1, GENERATION.bytes, digest(1)))
+                                       (following.revision, GENERATION.bytes, following.digest))
                     require(journal.is_file() and journal.stat().st_size > 0)
                     os._exit(73)
                 serve(0.5)
@@ -195,7 +209,7 @@ def main():
     if phase == "verify":
         require(facts["sid"] == "S-1-5-18")
         require(json.loads((STATE / "before.json").read_bytes()) == hashes())
-        require(registry_instance.read() == head(0))
+        require(registry_instance.read() == current)
         return 42
     client = PipeAuthorityClient(ROOT.name, server_sid=enrollment["authority"],
                                  client_sid=enrollment["client"])
@@ -211,16 +225,26 @@ def main():
             and not facts["elevated"] and facts["sid"] != enrollment["authority"])
     if phase == "preflight":
         return 42
+    if phase in E2E:
+        from c7_qualification import scm_dpapi_e2e
+        if phase == "e2e-seal":
+            require(dpapi is None and enrollment["integrity"] == 8192)
+            scm_dpapi_e2e.prepare(scratch, facts["sid"], GENERATION)
+        else:
+            require(dpapi is not None and enrollment["integrity"] == 8192)
+            evidence = scm_dpapi_e2e.qualify(phase, scratch, enrollment, GENERATION, client)
+            (scratch / (phase + "-checks.json")).write_text(json.dumps(evidence), encoding="ascii")
+        return 42
     if phase in ("ipc", "ipc-recovered"):
         try:
-            require(client.read() == head(0))
+            require(client.read() == current)
         except HeadUnavailable as error:
             cause = error.__cause__
             if getattr(cause, "winerror", None) == 5:
                 return 65
             raise
         for operation, reason in ((lambda: client._exchange(b"W"), "authority_operation_refused"),
-                                  (lambda: client.advance(head(0), head(1)), "authority_read_only")):
+                                  (lambda: client.advance(current, following), "authority_read_only")):
             try:
                 operation()
             except HeadUnavailable as error:
@@ -262,7 +286,8 @@ def main():
     with source.open("xb") as stream:
         stream.write(b"stale synthetic snapshot")
     for path in (DB, journal, ROOT / "archives" / "archive.synthetic",
-                 ROOT / "enrollment.json", ROOT / "Authority.exe"):
+                 ROOT / "enrollment.json", ROOT / "Authority.exe",
+                 *((ROOT / "archives" / "dpapi-current.v2a",) if dpapi else ())):
         for attempt in (lambda: path.open("r+b").close(), path.unlink,
                         lambda: os.replace(source, path), lambda: path.rename(path.with_suffix(".moved"))):
             try:
@@ -284,13 +309,13 @@ if __name__ == "__main__":
     ordinary = Path(r"C:\Users\Public\Documents") / ROOT.name / "ordinary"
     try:
         result = main()
-        if attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped"):
+        if attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E):
             (ordinary / (attempt + ".json")).write_text(
                 json.dumps({"pid": os.getpid(), "code": result, "token": token_facts()}), encoding="ascii")
         raise SystemExit(result)
     except Exception:
         if sys.argv[1:] == ["serve"] and os.name == "nt" and ROOT.parent == Path(r"C:\Program Files"):
             (STATE / "worker-failure.log").write_text(traceback.format_exc(limit=6), encoding="utf8")
-        elif attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped") and os.name == "nt":
+        elif attempt in ("preflight", "ipc", "ipc-recovered", "denied", "counterfeit", "dropped", *E2E) and os.name == "nt":
             (ordinary / (attempt + "-failure.log")).write_text(traceback.format_exc(limit=6), encoding="utf8")
         raise
